@@ -6,6 +6,10 @@ type Shape = {
   points: Point[];
   color: string;
   boundingBox: { minX: number; minY: number; maxX: number; maxY: number };
+  image?: HTMLImageElement;
+  centerX?: number;
+  centerY?: number;
+  size?: number;
 };
 
 type GamePhase = "idle" | "showing" | "drawing" | "result";
@@ -61,13 +65,14 @@ export default function App() {
   const phaseRef = useRef<GamePhase>("idle");
   const sensitivityRef = useRef(5);
   const unmaskTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const comedyMaskImageRef = useRef<HTMLImageElement | null>(null);
+
   // Audio analysis refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const handleBeatRef = useRef<(beatIdx: number, pitch?: number) => void>(() => {});
+  const handleBeatRef = useRef<(beatIdx: number, pitch?: number) => void>(() => { });
 
   // Sync phase ref
   useEffect(() => {
@@ -87,7 +92,7 @@ export default function App() {
 
     // Random center point with better margins
     const margin = 150;
-    
+
     let centerX;
     if (pitch !== undefined) {
       // Map pitch (0-1) to x position (Piano tiles style)
@@ -96,46 +101,29 @@ export default function App() {
     } else {
       centerX = Math.random() * (width - margin * 2) + margin;
     }
-    
+
     const centerY = Math.random() * (height - margin * 2) + margin;
 
-    // Generate Mask Shape (Fox/Kitsune style)
-    const points: Point[] = [];
-    const numPoints = 30; // More points for detail
-    const baseRadius = 90 + Math.random() * 40; 
+    // Size varies
+    const size = 120 + Math.random() * 60;
 
+    // Generate outline points for collision detection (circular approximation)
+    const points: Point[] = [];
+    const numPoints = 32;
     for (let i = 0; i < numPoints; i++) {
       const angle = (i / numPoints) * Math.PI * 2;
-      
-      // Base oval shape
-      let r = baseRadius * (0.85 + 0.15 * Math.sin(angle + Math.PI/2)); 
-
-      // Ears (Top-Left ~3.9 rad, Top-Right ~5.5 rad) - Clockwise: 0=Right, PI/2=Bottom, PI=Left, 3PI/2=Top
-      const ear1 = Math.exp(-Math.pow(angle - 3.9, 2) / 0.2);
-      const ear2 = Math.exp(-Math.pow(angle - 5.5, 2) / 0.2);
-      
-      // Chin (Bottom ~1.57 rad)
-      const chin = Math.exp(-Math.pow(angle - 1.57, 2) / 0.6);
-
-      r += baseRadius * (0.6 * ear1 + 0.6 * ear2 + 0.4 * chin);
-      
-      // Slight organic variation
-      r *= (0.95 + Math.random() * 0.1);
-
       points.push({
-        x: centerX + Math.cos(angle) * r,
-        y: centerY + Math.sin(angle) * r,
+        x: centerX + Math.cos(angle) * size,
+        y: centerY + Math.sin(angle) * size,
       });
     }
 
     // Calculate bounding box
-    const xs = points.map(p => p.x);
-    const ys = points.map(p => p.y);
     const boundingBox = {
-      minX: Math.min(...xs),
-      minY: Math.min(...ys),
-      maxX: Math.max(...xs),
-      maxY: Math.max(...ys),
+      minX: centerX - size,
+      minY: centerY - size,
+      maxX: centerX + size,
+      maxY: centerY + size,
     };
 
     const colors = ["#ff0066", "#00ffff", "#ffff00", "#00ff66", "#ff6600", "#ff00ff"];
@@ -152,74 +140,64 @@ export default function App() {
       points,
       color,
       boundingBox,
+      image: comedyMaskImageRef.current || undefined,
+      centerX,
+      centerY,
+      size,
     };
   }, []);
 
   const drawShape = (shape: Shape, ctx: CanvasRenderingContext2D, alpha = 1) => {
-    if (shape.points.length < 3) return;
+    if (!shape.image || !shape.centerX || !shape.centerY || !shape.size) return;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = shape.color;
-    ctx.strokeStyle = shape.color;
-    ctx.lineWidth = 4;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+
+    // Apply color tint and glow
     ctx.shadowBlur = 40;
     ctx.shadowColor = shape.color;
 
-    ctx.beginPath();
-    ctx.moveTo(shape.points[0]!.x, shape.points[0]!.y);
+    // Position and size the mask
+    const drawSize = shape.size * 2;
+    const x = shape.centerX - shape.size;
+    const y = shape.centerY - shape.size;
 
-    // Draw smooth curves through all points
-    for (let i = 1; i < shape.points.length; i++) {
-      const xc = (shape.points[i]!.x + shape.points[i - 1]!.x) / 2;
-      const yc = (shape.points[i]!.y + shape.points[i - 1]!.y) / 2;
-      ctx.quadraticCurveTo(shape.points[i - 1]!.x, shape.points[i - 1]!.y, xc, yc);
-    }
+    // Apply color filter by drawing with blend mode
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(shape.image, x, y, drawSize, drawSize);
 
-    // Close the shape back to start
-    ctx.quadraticCurveTo(
-      shape.points[shape.points.length - 1]!.x,
-      shape.points[shape.points.length - 1]!.y,
-      shape.points[0]!.x,
-      shape.points[0]!.y
-    );
+    // Add colored glow overlay
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = shape.color;
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.fillRect(x, y, drawSize, drawSize);
 
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
     ctx.restore();
   };
 
   // Draw hint outline during drawing phase
   const drawShapeHint = (shape: Shape, ctx: CanvasRenderingContext2D) => {
-    if (shape.points.length < 3) return;
+    if (!shape.image || !shape.centerX || !shape.centerY || !shape.size) return;
 
     ctx.save();
-    ctx.globalAlpha = 0.15;
+    ctx.globalAlpha = 0.2;
+
+    // Draw faint version of the mask as hint
+    const drawSize = shape.size * 2;
+    const x = shape.centerX - shape.size;
+    const y = shape.centerY - shape.size;
+
+    ctx.drawImage(shape.image, x, y, drawSize, drawSize);
+
+    // Add dashed circular outline
+    ctx.globalAlpha = 0.3;
     ctx.strokeStyle = shape.color;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 10]);
-
+    ctx.lineWidth = 3;
+    ctx.setLineDash([15, 15]);
     ctx.beginPath();
-    ctx.moveTo(shape.points[0]!.x, shape.points[0]!.y);
-
-    for (let i = 1; i < shape.points.length; i++) {
-      const xc = (shape.points[i]!.x + shape.points[i - 1]!.x) / 2;
-      const yc = (shape.points[i]!.y + shape.points[i - 1]!.y) / 2;
-      ctx.quadraticCurveTo(shape.points[i - 1]!.x, shape.points[i - 1]!.y, xc, yc);
-    }
-
-    ctx.quadraticCurveTo(
-      shape.points[shape.points.length - 1]!.x,
-      shape.points[shape.points.length - 1]!.y,
-      shape.points[0]!.x,
-      shape.points[0]!.y
-    );
-
-    ctx.closePath();
+    ctx.arc(shape.centerX, shape.centerY, shape.size, 0, Math.PI * 2);
     ctx.stroke();
+
     ctx.restore();
   };
 
@@ -265,25 +243,25 @@ export default function App() {
 
     // Draw the fading trail
     const startIndex = Math.max(0, points.length - trailLength);
-    
+
     for (let i = startIndex; i < points.length - 1; i++) {
       const p1 = points[i]!;
       const p2 = points[i + 1]!;
-      
+
       // Calculate opacity based on index (newer = more opaque)
       const opacity = (i - startIndex) / (points.length - 1 - startIndex);
-      
+
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
-      
+
       // Outer glow (Bluish)
       ctx.shadowBlur = 15;
       ctx.shadowColor = `rgba(0, 200, 255, ${opacity})`;
       ctx.strokeStyle = `rgba(100, 220, 255, ${opacity})`;
       ctx.lineWidth = 8 * opacity + 2;
       ctx.stroke();
-      
+
       // Inner core (White)
       ctx.shadowBlur = 0;
       ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
@@ -354,7 +332,7 @@ export default function App() {
       // Positive score if inside: 0 to 100 based on coverage
       finalScoreVal = Math.round(coverage * 100);
       accuracyPercent = Math.round(Math.max(0, 1 - avgError / 100) * 100); // Visual accuracy stat
-      
+
       if (finalScoreVal >= 95) rating = "PERFECT";
       else if (finalScoreVal >= 80) rating = "GREAT";
       else if (finalScoreVal >= 50) rating = "GOOD";
@@ -486,7 +464,7 @@ export default function App() {
       clearCanvas();
       ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
+
       // Show hint immediately so user knows what to draw
       drawShapeHint(shape, ctx);
 
@@ -530,7 +508,7 @@ export default function App() {
     const analyser = analyserRef.current;
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
+
     let lastBeatTime = 0;
     const minBeatSeparation = 0.25; // Faster response (250ms)
     const energyHistory: number[] = [];
@@ -547,25 +525,25 @@ export default function App() {
       let sum = 0;
       let maxVal = 0;
       let maxIndex = 0;
-      
+
       // Focus on audible range for melody (bins 2 to ~150 for 1024 FFT at 44.1k is ~86Hz to ~6.4kHz)
-      const startBin = 2; 
+      const startBin = 2;
       const endBin = Math.min(bufferLength, 150);
 
       for (let i = startBin; i < endBin; i++) {
         const val = dataArray[i]!;
         sum += val;
         if (val > maxVal) {
-            maxVal = val;
-            maxIndex = i;
+          maxVal = val;
+          maxIndex = i;
         }
       }
-      
+
       const average = sum / (endBin - startBin);
-      
+
       // Calculate local average from history BEFORE adding current
-      const localAvg = energyHistory.length ? energyHistory.reduce((a,b)=>a+b,0) / energyHistory.length : 0;
-      
+      const localAvg = energyHistory.length ? energyHistory.reduce((a, b) => a + b, 0) / energyHistory.length : 0;
+
       // Dynamic threshold based on sensitivity (1-10)
       // Higher sensitivity (10) -> Lower threshold (1.05) -> More beats
       // Lower sensitivity (1) -> Higher threshold (1.5) -> Fewer beats
@@ -580,16 +558,16 @@ export default function App() {
 
       if (isBeat || isFailsafe) {
         lastBeatTime = now;
-        
+
         // Calculate pitch (0-1) based on dominant frequency bin
         const pitch = (maxIndex - startBin) / (endBin - startBin);
         const clampedPitch = Math.max(0, Math.min(1, pitch));
-        
+
         // Trigger beat
         setBeatIndex((idx) => {
-            const newIdx = idx + 1;
-            handleBeatRef.current(newIdx, clampedPitch);
-            return newIdx;
+          const newIdx = idx + 1;
+          handleBeatRef.current(newIdx, clampedPitch);
+          return newIdx;
         });
         setFlashCount(c => c + 1);
         setBeats(b => [...b, video.currentTime]);
@@ -619,7 +597,7 @@ export default function App() {
       setCombo(0);
       setMaxCombo(0);
       setShapesCompleted(0);
-      
+
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     }
   };
@@ -636,14 +614,59 @@ export default function App() {
       setGamePhase("idle");
 
       setBeats([]);
-      
+
       // Start audio analysis
       setupAudioAnalysis();
-      
+
     } catch (err) {
       console.warn("play failed", err);
     }
   };
+
+  // Load comedy mask image
+  useEffect(() => {
+    const img = new Image();
+    // Comedy mask SVG as data URL
+    img.src = `data:image/svg+xml,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+        <defs>
+          <filter id="shadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+          </filter>
+        </defs>
+        <!-- Mask face outline -->
+        <ellipse cx="100" cy="100" rx="70" ry="85" fill="white" stroke="black" stroke-width="3" filter="url(#shadow)"/>
+        
+        <!-- Left eye (happy) -->
+        <path d="M 65 75 Q 75 85 85 75" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="75" cy="78" r="3" fill="black"/>
+        
+        <!-- Right eye (happy) -->
+        <path d="M 115 75 Q 125 85 135 75" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="125" cy="78" r="3" fill="black"/>
+        
+        <!-- Big smile -->
+        <path d="M 60 130 Q 100 165 140 130" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
+        <!-- Smile fill -->
+        <path d="M 60 130 Q 100 165 140 130 Q 100 150 60 130" fill="rgba(0,0,0,0.1)"/>
+        
+        <!-- Nose -->
+        <ellipse cx="100" cy="105" rx="8" ry="12" fill="rgba(0,0,0,0.1)" stroke="black" stroke-width="2"/>
+        
+        <!-- Laugh lines -->
+        <path d="M 55 115 Q 60 125 60 135" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+        <path d="M 145 115 Q 140 125 140 135" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      </svg>
+    `)}`;
+
+    img.onload = () => {
+      comedyMaskImageRef.current = img;
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load comedy mask image');
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -732,7 +755,7 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       if (ctx) {
         clearCanvas();
-        
+
         if (phaseRef.current === "showing" && lastShapeRef.current) {
           drawShape(lastShapeRef.current, ctx);
         } else {
