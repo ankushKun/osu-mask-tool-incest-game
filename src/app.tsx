@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 // IndexedDB utilities for video storage
 const DB_NAME = 'VideoHistoryDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'videos';
+const SCORES_STORE_NAME = 'scores';
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -17,6 +18,10 @@ const openDB = (): Promise<IDBDatabase> => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(SCORES_STORE_NAME)) {
+        const scoresStore = db.createObjectStore(SCORES_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        scoresStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
     };
   });
@@ -61,6 +66,48 @@ const clearVideosDB = async (): Promise<void> => {
   });
 };
 
+// Score storage utilities
+const saveScoreToDB = async (scoreEntry: ScoreEntry): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([SCORES_STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(SCORES_STORE_NAME);
+    const request = store.add(scoreEntry);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const getScoresFromDB = async (): Promise<ScoreEntry[]> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([SCORES_STORE_NAME], 'readonly');
+    const store = transaction.objectStore(SCORES_STORE_NAME);
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const scores = request.result as ScoreEntry[];
+      // Sort by score descending
+      scores.sort((a, b) => b.score - a.score);
+      resolve(scores);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const clearScoresDB = async (): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([SCORES_STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(SCORES_STORE_NAME);
+    const request = store.clear();
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
 type Point = { x: number; y: number };
 type Shape = {
   points: Point[];
@@ -80,6 +127,15 @@ type VideoHistoryItem = {
   size?: number;
   file?: File;
   loading?: boolean;
+};
+
+type ScoreEntry = {
+  id?: number;
+  videoName: string;
+  score: number;
+  maxCombo: number;
+  shapesCompleted: number;
+  timestamp: number;
 };
 
 function getPointSegmentDistance(p: Point, v: Point, w: Point) {
@@ -123,6 +179,7 @@ export default function App() {
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [videoHistory, setVideoHistory] = useState<VideoHistoryItem[]>([]);
   const [currentVideoName, setCurrentVideoName] = useState<string>("");
+  const [scoreboard, setScoreboard] = useState<ScoreEntry[]>([]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -739,6 +796,35 @@ export default function App() {
     }
   };
 
+  const saveScore = async () => {
+    if (score === 0 && shapesCompleted === 0) return; // Don't save empty scores
+
+    const scoreEntry: ScoreEntry = {
+      videoName: currentVideoName || 'Unknown',
+      score,
+      maxCombo,
+      shapesCompleted,
+      timestamp: Date.now(),
+    };
+
+    try {
+      await saveScoreToDB(scoreEntry);
+      const scores = await getScoresFromDB();
+      setScoreboard(scores);
+    } catch (e) {
+      console.error('Failed to save score', e);
+    }
+  };
+
+  const clearScoreboard = async () => {
+    try {
+      await clearScoresDB();
+      setScoreboard([]);
+    } catch (e) {
+      console.error('Failed to clear scoreboard', e);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -812,6 +898,20 @@ export default function App() {
     };
 
     loadHistory();
+  }, []);
+
+  // Load scoreboard from IndexedDB
+  useEffect(() => {
+    const loadScores = async () => {
+      try {
+        const scores = await getScoresFromDB();
+        setScoreboard(scores);
+      } catch (e) {
+        console.error('Failed to load scoreboard', e);
+      }
+    };
+
+    loadScores();
   }, []);
 
   // Load comedy mask image
@@ -1132,6 +1232,12 @@ export default function App() {
     }
     setProgress(Math.min(1, Math.max(0, v.currentTime / v.duration)));
     setTimeLeft(Math.max(0, v.duration - v.currentTime));
+
+    // Save score when video ends
+    if (v.ended && isPlaying) {
+      setIsPlaying(false);
+      saveScore();
+    }
   };
 
   // Clear beats when a new video is loaded
@@ -1258,13 +1364,17 @@ export default function App() {
 
         <div className="hud-top">
           <div className="score-container">
-            <div className="score"><span>Score: {score.toLocaleString()}</span></div>
-            <div key={combo} className={`combo ${combo > 0 ? 'visible' : ''}`}>
-              {combo > 0 ? `${combo}x` : ''}
-            </div>
+            {isPlaying && (
+              <>
+                <div className="score"><span>Score: {score.toLocaleString()}</span></div>
+                <div key={combo} className={`combo ${combo > 0 ? 'visible' : ''}`}>
+                  {combo > 0 ? `${combo}x` : ''}
+                </div>
+              </>
+            )}
 
             {/* Video History inside score box */}
-            {videoHistory.length > 0 && (
+            {!isPlaying && videoHistory.length > 0 && (
               <div className="video-history-compact">
                 <div className="history-header-compact">
                   <span className="history-title-compact">RECENT</span>
@@ -1298,12 +1408,48 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="stats-container">
-            <div>Shapes: {shapesCompleted}</div>
-            <div>Max: {maxCombo}x</div>
-          </div>
-          <div className="timer">
-            <span>{timeLeft !== null ? formatTime(timeLeft) : "--:--"}</span>
+          {isPlaying && (
+            <div className="stats-container">
+              <div>Shapes: {shapesCompleted}</div>
+              <div>Max: {maxCombo}x</div>
+            </div>
+          )}
+          <div className="timer-container">
+            <div className="timer">
+              <span>{timeLeft !== null ? formatTime(timeLeft) : "--:--"}</span>
+            </div>
+
+            {/* Scoreboard */}
+            {!isPlaying && scoreboard.length > 0 && (
+              <div className="scoreboard-compact">
+                <div className="scoreboard-header-compact">
+                  <span className="scoreboard-title-compact">TOP SCORES</span>
+                  <button
+                    className="scoreboard-clear-compact"
+                    onClick={clearScoreboard}
+                    title="Clear scoreboard"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="scoreboard-list-compact">
+                  {scoreboard.slice(0, 5).map((entry, idx) => (
+                    <div
+                      key={`${entry.id}-${entry.timestamp}`}
+                      className="scoreboard-item-compact"
+                    >
+                      <div className="scoreboard-item-rank-compact">{idx + 1}</div>
+                      <div className="scoreboard-item-content-compact">
+                        <div className="scoreboard-item-score-compact">{entry.score.toLocaleString()}</div>
+                        <div className="scoreboard-item-details-compact">
+                          {entry.shapesCompleted} shapes • {entry.maxCombo}x
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

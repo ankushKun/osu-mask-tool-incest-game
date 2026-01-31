@@ -914,6 +914,151 @@ body::before {
   box-shadow: none;
 }
 
+/* Scoreboard Compact Styles */
+.timer-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.scoreboard-compact {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transform: skewX(-15deg);
+  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.15);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  max-height: 280px;
+  overflow: hidden;
+}
+
+.scoreboard-header-compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 0, 153, 0.3);
+  transform: skewX(15deg);
+}
+
+.scoreboard-title-compact {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--secondary);
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px var(--secondary);
+}
+
+.scoreboard-clear-compact {
+  appearance: none;
+  background: rgba(255, 0, 153, 0.15);
+  border: 1px solid var(--secondary);
+  border-radius: 2px;
+  color: var(--secondary);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px);
+}
+
+.scoreboard-clear-compact:hover {
+  background: var(--secondary);
+  color: #000;
+  box-shadow: 0 0 12px var(--secondary);
+}
+
+.scoreboard-list-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--secondary) rgba(255, 255, 255, 0.1);
+  transform: skewX(15deg);
+  padding-right: 4px;
+}
+
+.scoreboard-list-compact::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scoreboard-list-compact::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.scoreboard-list-compact::-webkit-scrollbar-thumb {
+  background: var(--secondary);
+  border-radius: 2px;
+}
+
+.scoreboard-item-compact {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  flex-shrink: 0;
+}
+
+.scoreboard-item-compact:hover {
+  background: rgba(255, 0, 153, 0.15);
+  border-color: var(--secondary);
+  box-shadow: 0 0 15px rgba(255, 0, 153, 0.2);
+}
+
+.scoreboard-item-rank-compact {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--secondary);
+  text-shadow: 0 0 8px var(--secondary);
+  min-width: 24px;
+  text-align: center;
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+.scoreboard-item-compact:first-child .scoreboard-item-rank-compact {
+  color: #ffd700;
+  text-shadow: 0 0 10px #ffd700;
+}
+
+.scoreboard-item-content-compact {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.scoreboard-item-score-compact {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scoreboard-item-details-compact {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.3px;
+  font-weight: 500;
+}
+
 .unavailable-badge {
   color: #ff6666;
   font-size: 12px;
