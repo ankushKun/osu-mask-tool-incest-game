@@ -1,0 +1,384 @@
+@import "../styles/globals.css";
+
+@layer base {
+  :root {
+    @apply font-sans;
+  }
+
+  body {
+    @apply grid place-items-center min-w-[320px] min-h-screen relative m-0 bg-background text-foreground;
+  }
+}
+
+/* cool Bun background animation 😎 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.05;
+  background-size: 256px;
+  transform: rotate(-12deg) scale(1.35);
+  animation: slide 30s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes slide {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 256px 224px;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes beatFlash {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}
+
+.beat-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0) 60%);
+  mix-blend-mode: screen;
+  animation: beatFlash 360ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion) {
+
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+  }
+}
+
+/* Game UI styles */
+.game-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  display: block;
+  overflow: hidden;
+}
+
+.game-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  background: #000;
+}
+
+.file-input {
+  display: none;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  pointer-events: auto;
+}
+
+.score,
+.timer {
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+}
+
+.center-controls {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.controls {
+  pointer-events: auto;
+}
+
+.btn {
+  appearance: none;
+  background: linear-gradient(180deg, #ff6b6b, #ff3b3b);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.hud-bottom {
+  height: 80px;
+}
+
+/* Top thin progress bar */
+.progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #00e5ff, #5aff9e);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.25);
+  transition: width 120ms linear;
+}
+
+/* Score and combo display */
+.score-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.combo {
+  background: rgba(255, 200, 0, 0.9);
+  color: #000;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+  animation: pulse 0.3s ease-out;
+}
+
+.stats-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.shapes-done,
+.max-combo {
+  background: rgba(0, 0, 0, 0.45);
+  color: #aaa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+
+/* Phase indicator - minimal corner icons */
+.phase-indicator {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.phase-icon {
+  font-size: 64px;
+  animation: phasePop 0.2s ease-out;
+}
+
+.phase-indicator.showing .phase-icon {
+  filter: drop-shadow(0 0 20px #ffd700);
+}
+
+.phase-indicator.drawing .phase-icon {
+  filter: drop-shadow(0 0 20px #00ff88);
+}
+
+@keyframes phasePop {
+  0% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Result feedback - simplified */
+.result-feedback {
+  position: absolute;
+  top: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 55;
+  pointer-events: none;
+  animation: resultFadeIn 0.2s ease-out;
+}
+
+.result-score {
+  font-size: 56px;
+  font-weight: 900;
+  color: #ffd700;
+  text-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+  animation: scoreFloat 0.3s ease-out;
+}
+
+.result-details {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.overlap-stat {
+  color: #00ff88;
+}
+
+.distance-stat {
+  color: #00d4ff;
+}
+
+@keyframes resultFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes resultPop {
+  0% {
+    transform: scale(2);
+    opacity: 0;
+  }
+
+  60% {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes scoreFloat {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1.2);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Game canvas */
+.game-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
+/* Waiting and phase hints */
+.waiting-hint,
+.phase-hint {
+  text-align: center;
+  pointer-events: none;
+}
+
+.waiting-text {
+  font-size: 24px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  animation: gentlePulse 2s ease-in-out infinite;
+}
+
+.waiting-subtext {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 8px;
+}
+
+.memorize-text {
+  font-size: 32px;
+  font-weight: 800;
+  color: #ffd700;
+  text-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+  animation: pulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes gentlePulse {
+
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
