@@ -3,48 +3,37 @@
 @layer base {
   :root {
     @apply font-sans;
-    --osu-pink: #ff66ab;
-    --osu-purple: #7c3aed;
-    --osu-blue: #3b82f6;
-    --osu-cyan: #06b6d4;
-    --osu-gold: #fbbf24;
-    --osu-green: #22c55e;
-    --osu-orange: #f97316;
-    --osu-red: #ef4444;
+    --primary: #00e5ff;
+    --secondary: #ff0099;
+    --bg-dark: #0a0a0f;
+    --glass: rgba(20, 20, 30, 0.75);
   }
 
   body {
     @apply grid place-items-center min-w-[320px] min-h-screen relative m-0 bg-background text-foreground;
-    font-family: 'Segoe UI', 'Torus', system-ui, -apple-system, sans-serif;
   }
 }
 
-/* Animated background gradient */
+/* cool Bun background animation 😎 */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(135deg,
-      rgba(124, 58, 237, 0.15) 0%,
-      rgba(255, 102, 171, 0.1) 25%,
-      rgba(6, 182, 212, 0.1) 50%,
-      rgba(124, 58, 237, 0.15) 75%,
-      rgba(255, 102, 171, 0.1) 100%);
-  background-size: 400% 400%;
-  animation: gradientShift 15s ease infinite;
+  opacity: 0.05;
+  background-size: 256px;
+  transform: rotate(-12deg) scale(1.35);
+  animation: slide 30s linear infinite;
   pointer-events: none;
 }
 
-@keyframes gradientShift {
-
-  0%,
-  100% {
-    background-position: 0% 50%;
+@keyframes slide {
+  from {
+    background-position: 0 0;
   }
 
-  50% {
-    background-position: 100% 50%;
+  to {
+    background-position: 256px 224px;
   }
 }
 
@@ -66,7 +55,7 @@ body::before {
 
   100% {
     opacity: 0;
-    transform: scale(1.05);
+    transform: scale(1.02);
   }
 }
 
@@ -75,12 +64,9 @@ body::before {
   inset: 0;
   z-index: 60;
   pointer-events: none;
-  background: radial-gradient(circle at center,
-      rgba(255, 102, 171, 0.6) 0%,
-      rgba(124, 58, 237, 0.3) 30%,
-      transparent 60%);
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0) 60%);
   mix-blend-mode: screen;
-  animation: beatFlash 300ms ease-out forwards;
+  animation: beatFlash 360ms ease-out forwards;
 }
 
 @media (prefers-reduced-motion) {
@@ -98,35 +84,30 @@ body::before {
   inset: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, #0f0a1a 0%, #1a0a2e 50%, #0a1628 100%);
+  background: #000;
   display: block;
   overflow: hidden;
 }
 
-/* Animated grid background */
-.game-root::before {
+/* Vignette effect */
+.game-root::after {
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 102, 171, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 102, 171, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px;
-  animation: gridPulse 4s ease-in-out infinite;
   pointer-events: none;
-  z-index: 1;
+  background: radial-gradient(circle at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+  z-index: 2;
 }
 
-@keyframes gridPulse {
-
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-
-  50% {
-    opacity: 1;
-  }
+/* CRT Scanline effect */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 90;
+  opacity: 0.4;
 }
 
 .game-video {
@@ -155,44 +136,46 @@ body::before {
 
 .hud-top {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 20px 24px;
+  padding: 32px;
   pointer-events: auto;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0%, transparent 100%);
+  background: transparent;
 }
 
-.score {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.8), rgba(255, 102, 171, 0.6));
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 50px;
+/* Cyberpunk HUD Boxes */
+.score,
+.timer,
+.stats-container {
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-left: 4px solid var(--primary);
+  border-radius: 2px;
+  padding: 12px 32px;
+  font-size: 24px;
   font-weight: 800;
-  font-size: 20px;
   letter-spacing: 1px;
-  backdrop-filter: blur(10px);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow:
-    0 4px 20px rgba(124, 58, 237, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  text-transform: uppercase;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+  transform: skewX(-15deg); /* Sci-fi slant */
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+/* Un-skew text inside */
+.score > *,
+.timer > *,
+.stats-container > * {
+  display: block;
+  transform: skewX(15deg);
 }
 
 .timer {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(59, 130, 246, 0.6));
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 50px;
-  font-weight: 800;
-  font-size: 20px;
+  border-left: none;
+  border-right: 4px solid var(--secondary);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 2px;
-  backdrop-filter: blur(10px);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow:
-    0 4px 20px rgba(6, 182, 212, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  color: var(--secondary);
+  text-shadow: 0 0 10px var(--secondary);
 }
 
 .center-controls {
@@ -210,158 +193,131 @@ body::before {
 
 .btn {
   appearance: none;
-  background: linear-gradient(135deg, var(--osu-pink), var(--osu-purple));
-  color: white;
-  border: none;
-  padding: 16px 40px;
-  border-radius: 50px;
-  font-weight: 800;
-  font-size: 18px;
-  letter-spacing: 2px;
+  background: rgba(0, 20, 40, 0.8);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  padding: 20px 60px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 4px;
   text-transform: uppercase;
-  box-shadow:
-    0 8px 30px rgba(255, 102, 171, 0.5),
-    0 0 0 0 rgba(255, 102, 171, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  /* Tech shape */
+  clip-path: polygon(
+    20px 0, 100% 0, 
+    100% calc(100% - 20px), 
+    calc(100% - 20px) 100%, 
+    0 100%, 
+    0 20px
+  );
   cursor: pointer;
   transition: all 0.2s ease;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  position: relative;
-  overflow: hidden;
-}
-
-.btn::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transform: translateX(-100%);
-  transition: transform 0.5s ease;
-}
-
-.btn:hover::before {
-  transform: translateX(100%);
+  box-shadow: inset 0 0 20px rgba(0, 229, 255, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .btn:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow:
-    0 12px 40px rgba(255, 102, 171, 0.6),
-    0 0 60px rgba(255, 102, 171, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-.btn:active {
-  transform: translateY(0) scale(0.98);
-  box-shadow:
-    0 4px 15px rgba(255, 102, 171, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  background: var(--primary);
+  color: #000;
+  box-shadow: 0 0 50px var(--primary);
+  transform: scale(1.05);
 }
 
 .hud-bottom {
-  height: 100px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0%, transparent 100%);
+  height: 80px;
 }
 
-/* Progress bar - osu! style */
+/* Top thin progress bar */
 .progress-bar {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  bottom: 30px;
+  left: 40px;
+  right: 40px;
+  top: auto;
   height: 6px;
   background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 3px;
   z-index: 20;
   pointer-events: none;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  overflow: visible;
 }
 
 .progress-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--osu-pink), var(--osu-purple), var(--osu-cyan));
-  box-shadow:
-    0 0 20px var(--osu-pink),
-    0 0 40px rgba(255, 102, 171, 0.5);
-  transition: width 100ms linear;
+  background: var(--primary);
+  box-shadow: 0 0 20px var(--primary);
+  border-radius: 3px;
   position: relative;
+  transition: width 120ms linear;
 }
 
 .progress-fill::after {
   content: "";
   position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  background: white;
+  right: -6px;
+  top: -6px;
+  bottom: -6px;
+  width: 12px;
+  background: #fff;
   border-radius: 50%;
-  box-shadow:
-    0 0 10px var(--osu-pink),
-    0 0 20px var(--osu-pink),
-    0 0 30px rgba(255, 102, 171, 0.5);
+  box-shadow: 0 0 15px #fff;
 }
 
 /* Score and combo display */
 .score-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   align-items: flex-start;
+  gap: 8px;
 }
 
 .combo {
-  background: linear-gradient(135deg, var(--osu-gold), var(--osu-orange));
-  color: #000;
-  padding: 8px 20px;
-  border-radius: 50px;
+  font-size: 64px;
   font-weight: 900;
-  font-size: 18px;
-  text-align: center;
-  animation: comboPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow:
-    0 4px 15px rgba(251, 191, 36, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  font-style: italic;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--primary);
+  background: linear-gradient(180deg, #fff 0%, var(--primary) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px var(--primary));
+  margin-top: -10px;
+  margin-left: 20px;
+  transform: skewX(-10deg);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.combo.visible {
+  opacity: 1;
+  animation: comboPop 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @keyframes comboPop {
-  0% {
-    transform: scale(1.4);
-  }
-
-  50% {
-    transform: scale(0.9);
-  }
-
-  100% {
-    transform: scale(1);
-  }
+  0% { transform: skewX(-10deg) scale(1.5); filter: brightness(2) drop-shadow(0 0 20px var(--primary)); }
+  100% { transform: skewX(-10deg) scale(1); }
 }
 
 .stats-container {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: center;
+  border-left: 2px solid #fff;
+  font-size: 12px;
+  padding: 6px 16px;
+  gap: 4px;
+  background: rgba(0,0,0,0.8);
 }
 
 .shapes-done,
 .max-combo {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
+  background: transparent;
+  color: #ccc;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
   font-weight: 600;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-/* Phase indicator - glowing circle */
+/* Phase indicator - minimal corner icons */
 .phase-indicator {
   position: absolute;
   top: 80px;
@@ -369,120 +325,70 @@ body::before {
   transform: translateX(-50%);
   z-index: 50;
   pointer-events: none;
+  background: rgba(0,0,0,0.6);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  backdrop-filter: blur(10px);
 }
 
 .phase-icon {
-  font-size: 72px;
-  animation: phaseGlow 0.3s ease-out;
+  font-size: 64px;
+  animation: phasePop 0.2s ease-out;
 }
 
 .phase-indicator.showing .phase-icon {
-  filter: drop-shadow(0 0 30px var(--osu-gold)) drop-shadow(0 0 60px var(--osu-gold));
+  filter: drop-shadow(0 0 10px #ffd700);
+  color: #ffd700;
 }
 
 .phase-indicator.drawing .phase-icon {
-  filter: drop-shadow(0 0 30px var(--osu-green)) drop-shadow(0 0 60px var(--osu-green));
+  filter: drop-shadow(0 0 10px var(--primary));
+  color: var(--primary);
 }
 
-@keyframes phaseGlow {
+@keyframes phasePop {
   0% {
-    transform: scale(2);
+    transform: scale(1.5);
     opacity: 0;
-    filter: blur(10px);
   }
 
   100% {
     transform: scale(1);
     opacity: 1;
-    filter: blur(0);
   }
 }
 
-/* Result feedback - osu! style judgment */
+/* Result feedback - simplified */
 .result-feedback {
   position: absolute;
-  top: 50%;
+  top: 100px;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   z-index: 55;
   pointer-events: none;
-  animation: judgmentAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.result-grade {
-  font-size: 72px;
-  font-weight: 900;
-  letter-spacing: 8px;
-  text-transform: uppercase;
-  animation: gradeShake 0.5s ease-out;
+  animation: resultFadeIn 0.2s ease-out;
 }
 
 .result-score {
-  font-size: 36px;
-  font-weight: 800;
+  font-size: 80px;
+  font-style: italic;
+  font-weight: 900;
   color: #fff;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
-  animation: scoreSlide 0.3s ease-out 0.1s both;
-}
-
-@keyframes judgmentAppear {
-  0% {
-    transform: translate(-50%, -50%) scale(2);
-    opacity: 0;
-    filter: blur(20px);
-  }
-
-  60% {
-    transform: translate(-50%, -50%) scale(0.9);
-    opacity: 1;
-    filter: blur(0);
-  }
-
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
-@keyframes gradeShake {
-
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-
-  10%,
-  30%,
-  50%,
-  70%,
-  90% {
-    transform: translateX(-2px) rotate(-0.5deg);
-  }
-
-  20%,
-  40%,
-  60%,
-  80% {
-    transform: translateX(2px) rotate(0.5deg);
-  }
-}
-
-@keyframes scoreSlide {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  text-shadow: 0 0 10px var(--secondary), 0 0 20px var(--secondary), 0 0 40px var(--secondary);
+  transform: skewX(-10deg);
+  animation: scoreFloat 0.3s ease-out;
 }
 
 .result-details {
+  background: rgba(0,0,0,0.8);
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.2);
   display: flex;
   gap: 20px;
   font-size: 14px;
@@ -490,11 +396,11 @@ body::before {
 }
 
 .overlap-stat {
-  color: var(--osu-green);
+  color: #00ff88;
 }
 
 .distance-stat {
-  color: var(--osu-cyan);
+  color: #00d4ff;
 }
 
 @keyframes resultFadeIn {
@@ -560,471 +466,36 @@ body::before {
 }
 
 .waiting-text {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 4px;
   color: rgba(255, 255, 255, 0.8);
-  text-shadow: 0 0 20px rgba(255, 102, 171, 0.5);
-  animation: waitingPulse 2s ease-in-out infinite;
+  text-shadow: 0 0 20px rgba(255,255,255,0.5);
+  animation: gentlePulse 2s ease-in-out infinite;
 }
 
 .waiting-subtext {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 12px;
-}
-
-.memorize-text {
-  font-size: 36px;
-  font-weight: 900;
-  color: var(--osu-gold);
-  text-shadow:
-    0 0 30px rgba(251, 191, 36, 0.8),
-    0 0 60px rgba(251, 191, 36, 0.4);
-  animation: memorizeGlow 0.5s ease-in-out infinite alternate;
-}
-
-@keyframes waitingPulse {
-
-  0%,
-  100% {
-    opacity: 0.5;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1.02);
-  }
-}
-
-@keyframes memorizeGlow {
-  0% {
-    filter: brightness(1);
-  }
-
-  100% {
-    filter: brightness(1.3);
-  }
-}
-
-/* Rules and start screen - osu! style panel */
-.start-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 32px;
-  max-width: 480px;
-  text-align: center;
-}
-
-.rules {
-  background: linear-gradient(135deg,
-      rgba(124, 58, 237, 0.3) 0%,
-      rgba(15, 10, 26, 0.95) 50%,
-      rgba(255, 102, 171, 0.2) 100%);
-  border-radius: 24px;
-  padding: 28px 32px;
-  color: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.5),
-    0 0 80px rgba(124, 58, 237, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.rules h3 {
-  margin: 0 0 16px 0;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  background: linear-gradient(135deg, var(--osu-pink), var(--osu-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.rules ul {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 20px 0;
-  text-align: left;
-}
-
-.rules li {
-  padding: 10px 0;
-  font-size: 15px;
-  color: rgba(255, 255, 255, 0.85);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.rules li:last-child {
-  border-bottom: none;
-}
-
-.rules li::before {
-  content: "●";
-  color: var(--osu-pink);
-  font-size: 10px;
-  text-shadow: 0 0 10px var(--osu-pink);
-}
-
-.scoring-info {
-  border-top: 2px solid rgba(255, 255, 255, 0.15);
-  padding-top: 16px;
+  color: rgba(255, 255, 255, 0.4);
   margin-top: 8px;
 }
 
-.scoring-info h4 {
-  margin: 0 0 14px 0;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--osu-gold);
-  text-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
-}
-
-.score-slabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  margin-bottom: 12px;
-}
-
-.slab {
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  border: 1px solid;
-  transition: all 0.2s ease;
-}
-
-.slab:hover {
-  transform: scale(1.05);
-}
-
-.slab.perfect {
-  background: rgba(251, 191, 36, 0.2);
-  color: var(--osu-gold);
-  border-color: rgba(251, 191, 36, 0.5);
-  box-shadow: 0 0 15px rgba(251, 191, 36, 0.3);
-}
-
-.slab.great {
-  background: rgba(34, 197, 94, 0.2);
-  color: var(--osu-green);
-  border-color: rgba(34, 197, 94, 0.5);
-  box-shadow: 0 0 15px rgba(34, 197, 94, 0.3);
-}
-
-.slab.good {
-  background: rgba(6, 182, 212, 0.2);
-  color: var(--osu-cyan);
-  border-color: rgba(6, 182, 212, 0.5);
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
-}
-
-.slab.ok {
-  background: rgba(249, 115, 22, 0.2);
-  color: var(--osu-orange);
-  border-color: rgba(249, 115, 22, 0.5);
-  box-shadow: 0 0 15px rgba(249, 115, 22, 0.3);
-}
-
-.slab.miss {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--osu-red);
-  border-color: rgba(239, 68, 68, 0.5);
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
-}
-
-.scoring-info p {
-  margin: 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.5);
-  font-style: italic;
-}
-
-.rules-compact {
-  padding: 16px 24px;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.rules-compact p {
-  margin: 0;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  letter-spacing: 0.5px;
-}
-
-/* Grade-based result feedback - osu! colors */
-.result-feedback .result-grade {
-  font-size: 80px;
-  font-weight: 900;
-  letter-spacing: 10px;
-}
-
-.result-feedback.grade-perfect .result-grade {
-  color: var(--osu-gold);
-  text-shadow:
-    0 0 40px rgba(251, 191, 36, 1),
-    0 0 80px rgba(251, 191, 36, 0.8),
-    0 0 120px rgba(251, 191, 36, 0.5);
-  animation: gradeShake 0.5s ease-out, perfectGlow 0.5s ease-in-out infinite alternate;
-}
-
-@keyframes perfectGlow {
-  0% {
-    filter: brightness(1) drop-shadow(0 0 20px var(--osu-gold));
-  }
-
-  100% {
-    filter: brightness(1.3) drop-shadow(0 0 40px var(--osu-gold));
-  }
-}
-
-.result-feedback.grade-great .result-grade {
-  color: var(--osu-green);
-  text-shadow:
-    0 0 30px rgba(34, 197, 94, 0.9),
-    0 0 60px rgba(34, 197, 94, 0.6);
-}
-
-.result-feedback.grade-good .result-grade {
-  color: var(--osu-cyan);
-  text-shadow:
-    0 0 30px rgba(6, 182, 212, 0.8),
-    0 0 50px rgba(6, 182, 212, 0.5);
-}
-
-.result-feedback.grade-ok .result-grade {
-  color: var(--osu-orange);
-  text-shadow:
-    0 0 25px rgba(249, 115, 22, 0.7),
-    0 0 40px rgba(249, 115, 22, 0.4);
-}
-
-.result-feedback.grade-miss .result-grade {
-  color: var(--osu-red);
-  text-shadow:
-    0 0 20px rgba(239, 68, 68, 0.7),
-    0 0 35px rgba(239, 68, 68, 0.4);
-}
-
-/* Brush cursor glow */
-.brush-cursor {
-  box-shadow:
-    0 0 10px rgba(255, 255, 255, 0.5),
-    0 0 20px rgba(255, 102, 171, 0.3);
-  transition: width 0.1s ease, height 0.1s ease;
-}
-
-/* Accuracy display for drawing phase */
-.accuracy-indicator {
-  position: absolute;
-  bottom: 120px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 24px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.6);
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
-  z-index: 30;
-}
-
-/* Game logo */
-.game-logo {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  margin-bottom: 8px;
-}
-
-.logo-text {
-  font-size: 56px;
-  font-weight: 900;
-  letter-spacing: 12px;
-  background: linear-gradient(135deg, var(--osu-pink), var(--osu-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: none;
-  filter: drop-shadow(0 0 30px rgba(255, 102, 171, 0.5));
-}
-
-.logo-accent {
+.memorize-text {
   font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 20px;
-  color: rgba(255, 255, 255, 0.8);
-  margin-top: -8px;
+  font-weight: 800;
+  color: #ffd700;
+  text-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+  animation: pulse 0.5s ease-in-out infinite alternate;
 }
 
-/* Ready text */
-.ready-text {
-  font-size: 48px;
-  font-weight: 900;
-  letter-spacing: 12px;
-  color: var(--osu-gold);
-  text-shadow:
-    0 0 30px rgba(251, 191, 36, 0.8),
-    0 0 60px rgba(251, 191, 36, 0.4);
-  animation: readyPulse 1s ease-in-out infinite;
-  margin-bottom: 8px;
-}
-
-@keyframes readyPulse {
+@keyframes gentlePulse {
 
   0%,
   100% {
-    transform: scale(1);
-    opacity: 1;
+    opacity: 0.6;
   }
 
   50% {
-    transform: scale(1.05);
-    opacity: 0.8;
-  }
-}
-
-/* Start button special styling */
-.btn-start {
-  font-size: 24px;
-  padding: 20px 60px;
-  animation: startGlow 2s ease-in-out infinite;
-}
-
-@keyframes startGlow {
-
-  0%,
-  100% {
-    box-shadow: 0 8px 30px rgba(255, 102, 171, 0.5), 0 0 0 0 rgba(255, 102, 171, 0.4);
-  }
-
-  50% {
-    box-shadow: 0 8px 40px rgba(255, 102, 171, 0.7), 0 0 60px rgba(255, 102, 171, 0.3);
-  }
-}
-
-/* Score styling improvements */
-.score {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.score-label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  opacity: 0.7;
-}
-
-.score-value {
-  font-variant-numeric: tabular-nums;
-  font-size: 24px;
-}
-
-/* Combo styling */
-.combo {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-.combo-count {
-  font-size: 28px;
-  font-weight: 900;
-}
-
-.combo-label {
-  font-size: 18px;
-  font-weight: 700;
-  opacity: 0.8;
-}
-
-/* Stats icons */
-.stat-icon {
-  opacity: 0.7;
-}
-
-/* Timer icon */
-.timer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.timer-icon {
-  font-size: 16px;
-}
-
-/* Keyboard hints */
-kbd {
-  display: inline-block;
-  padding: 2px 8px;
-  margin: 0 2px;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  font-family: inherit;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
-}
-
-/* Phase text during gameplay */
-.phase-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.4);
-  pointer-events: none;
-  z-index: 15;
-  animation: phaseTextPop 0.3s ease-out;
-}
-
-.phase-text.memorize {
-  color: var(--osu-gold);
-  text-shadow: 0 0 30px rgba(251, 191, 36, 0.6);
-}
-
-@keyframes phaseTextPop {
-  0% {
-    transform: translate(-50%, -50%) scale(1.5);
-    opacity: 0;
-  }
-
-  100% {
-    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
   }
-}
-
-/* Beat markers on progress bar */
-.beat-marker {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--osu-pink);
-  opacity: 0.8;
-  border-radius: 2px;
-  box-shadow: 0 0 8px var(--osu-pink);
 }
