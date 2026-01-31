@@ -1,6 +1,5 @@
 import "./index.css";
 import { useEffect, useRef, useState, useCallback } from "react";
-import detectBeatsFromVideo from "./lib/detectBeats";
 
 type Point = { x: number; y: number };
 type Shape = {
@@ -20,6 +19,17 @@ function getPointSegmentDistance(p: Point, v: Point, w: Point) {
   return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
 }
 
+function isPointInPolygon(p: Point, polygon: Point[]) {
+  let isInside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i]!.x, yi = polygon[i]!.y;
+    const xj = polygon[j]!.x, yj = polygon[j]!.y;
+    const intersect = ((yi > p.y) !== (yj > p.y)) && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+    if (intersect) isInside = !isInside;
+  }
+  return isInside;
+}
+
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -37,10 +47,10 @@ export default function App() {
   const [beatIndex, setBeatIndex] = useState(0);
   const [resultFeedback, setResultFeedback] = useState<ResultFeedback>(null);
   const [shapesCompleted, setShapesCompleted] = useState(0);
+  const [sensitivity, setSensitivity] = useState(5);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
-  const stopDetectRef = useRef<(() => void) | null>(null);
   const gameRootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shapeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -48,13 +58,25 @@ export default function App() {
   const lastShapeRef = useRef<Shape | null>(null);
   const userDrawingRef = useRef<Point[]>([]);
   const phaseRef = useRef<GamePhase>("idle");
+  const sensitivityRef = useRef(5);
+  
+  // Audio analysis refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const handleBeatRef = useRef<(beatIdx: number, pitch?: number) => void>(() => {});
 
   // Sync phase ref
   useEffect(() => {
     phaseRef.current = gamePhase;
   }, [gamePhase]);
 
-  const generateRandomShape = useCallback((): Shape => {
+  useEffect(() => {
+    sensitivityRef.current = sensitivity;
+  }, [sensitivity]);
+
+  const generateRandomShape = useCallback((pitch?: number): Shape => {
     const canvas = canvasRef.current;
     if (!canvas) return { points: [], color: "#fff", boundingBox: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
 
@@ -63,7 +85,16 @@ export default function App() {
 
     // Random center point with better margins
     const margin = 150;
-    const centerX = Math.random() * (width - margin * 2) + margin;
+    
+    let centerX;
+    if (pitch !== undefined) {
+      // Map pitch (0-1) to x position (Piano tiles style)
+      // 0 (Low pitch) -> Left, 1 (High pitch) -> Right
+      centerX = margin + pitch * (width - margin * 2);
+    } else {
+      centerX = Math.random() * (width - margin * 2) + margin;
+    }
+    
     const centerY = Math.random() * (height - margin * 2) + margin;
 
     // Generate organic blob shape - larger and more visible
@@ -93,9 +124,18 @@ export default function App() {
     };
 
     const colors = ["#ff0066", "#00ffff", "#ffff00", "#00ff66", "#ff6600", "#ff00ff"];
+    let color;
+    if (pitch !== undefined) {
+      // Map pitch to color to reinforce the note feeling
+      const colorIdx = Math.floor(pitch * colors.length);
+      color = colors[Math.min(colors.length - 1, Math.max(0, colorIdx))]!;
+    } else {
+      color = colors[Math.floor(Math.random() * colors.length)]!;
+    }
+
     return {
       points,
-      color: colors[Math.floor(Math.random() * colors.length)]!,
+      color,
       boundingBox,
     };
   }, []);
@@ -200,6 +240,14 @@ export default function App() {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
+    // Draw the cursor head (Laser point)
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = "#00ffff";
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(lastPoint.x, lastPoint.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+
     // Draw the fading trail
     const startIndex = Math.max(0, points.length - trailLength);
     
@@ -228,14 +276,6 @@ export default function App() {
       ctx.stroke();
     }
 
-    // Draw the cursor head (Laser point)
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = "#00ffff";
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(lastPoint.x, lastPoint.y, 6, 0, Math.PI * 2);
-    ctx.fill();
-    
     ctx.restore();
   };
 
@@ -245,11 +285,13 @@ export default function App() {
       return { score: -50, accuracy: 0, distance: 0, rating: "MISS" };
     }
 
-    // 1. Calculate Proximity (Average distance to shape outline)
+    // 1. Check for points outside the shape (Penalty)
+    let maxOutsideDist = 0;
     let totalError = 0;
+    const tolerance = 20; // Allow 20px margin of error for "tracing" the line
+
     for (const p of drawn) {
       let minD = Infinity;
-      // Find distance to closest segment of the target polygon
       for (let i = 0; i < target.points.length; i++) {
         const p1 = target.points[i]!;
         const p2 = target.points[(i + 1) % target.points.length]!;
@@ -257,6 +299,11 @@ export default function App() {
         if (d < minD) minD = d;
       }
       totalError += minD;
+
+      const inside = isPointInPolygon(p, target.points);
+      if (!inside && minD > tolerance) {
+        maxOutsideDist = Math.max(maxOutsideDist, minD - tolerance);
+      }
     }
     const avgError = totalError / drawn.length;
 
@@ -277,25 +324,30 @@ export default function App() {
     }
     const coverage = Math.min(1, hits.size / (sectors * 0.85)); // Allow small gaps
 
-    // 3. Final Scoring
-    // Accuracy drops as error increases (tolerance ~120px)
-    const accuracyRaw = Math.max(0, 1 - avgError / 120);
-    const accuracy = Math.pow(accuracyRaw, 1.5); // Gentler falloff
-
-    // Penalize incomplete shapes less heavily
-    const coveragePenalty = coverage < 0.3 ? 0 : coverage;
-
-    const finalScoreVal = Math.round(1000 * accuracy * coveragePenalty);
-    const accuracyPercent = Math.round(accuracy * 100);
-
+    // 3. Final Scoring Logic
+    let finalScoreVal = 0;
     let rating = "MISS";
-    if (finalScoreVal > 800) rating = "PERFECT";
-    else if (finalScoreVal > 600) rating = "GREAT";
-    else if (finalScoreVal > 400) rating = "GOOD";
-    else if (finalScoreVal > 100) rating = "OK";
+    let accuracyPercent = 0;
+
+    if (maxOutsideDist > 0) {
+      // Negative score if outside: -1 to -100 based on distance
+      // Max penalty at 150px outside
+      const penalty = Math.min(100, (maxOutsideDist / 150) * 100);
+      finalScoreVal = -Math.round(penalty);
+      rating = "MISS";
+    } else {
+      // Positive score if inside: 0 to 100 based on coverage
+      finalScoreVal = Math.round(coverage * 100);
+      accuracyPercent = Math.round(Math.max(0, 1 - avgError / 100) * 100); // Visual accuracy stat
+      
+      if (finalScoreVal >= 95) rating = "PERFECT";
+      else if (finalScoreVal >= 80) rating = "GREAT";
+      else if (finalScoreVal >= 50) rating = "GOOD";
+      else if (finalScoreVal > 0) rating = "OK";
+    }
 
     return {
-      score: rating === "MISS" ? -50 : finalScoreVal,
+      score: finalScoreVal,
       accuracy: accuracyPercent,
       distance: Math.round(avgError),
       rating
@@ -326,11 +378,11 @@ export default function App() {
       const result = calculateScore(drawn, shape);
 
       if (result.rating === "MISS") {
-        setScore(prev => Math.max(0, prev + result.score));
+        setScore(prev => Math.max(0, prev + result.score)); // Allow score to drop
         setCombo(0);
         setResultFeedback(result);
       } else {
-        const comboBonus = Math.floor(combo * 5);
+        const comboBonus = Math.floor(combo * 2); // Reduced combo bonus for 100-scale
         const finalScore = result.score + comboBonus;
         setScore(prev => prev + finalScore);
         setCombo(prev => {
@@ -370,7 +422,7 @@ export default function App() {
     }, 600);
   }, [combo, calculateScore]);
 
-  const handleBeat = useCallback((beatIdx: number) => {
+  const handleBeat = useCallback((beatIdx: number, pitch?: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -390,7 +442,7 @@ export default function App() {
     }
 
     // Generate and show new shape as a brief BLIP
-    const shape = generateRandomShape();
+    const shape = generateRandomShape(pitch);
     lastShapeRef.current = shape;
     setCurrentShape(shape);
     setGamePhase("showing");
@@ -421,6 +473,107 @@ export default function App() {
     }, 600);
   }, [generateRandomShape, endDrawingPhase]);
 
+  // Keep handleBeatRef updated to avoid stale closures in the audio loop
+  useEffect(() => {
+    handleBeatRef.current = handleBeat;
+  }, [handleBeat]);
+
+  const setupAudioAnalysis = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      audioContextRef.current = new AudioContextClass();
+    }
+    const ctx = audioContextRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    if (!sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current = ctx.createMediaElementSource(video);
+        analyserRef.current = ctx.createAnalyser();
+        analyserRef.current.fftSize = 1024;
+        analyserRef.current.smoothingTimeConstant = 0.8;
+        sourceNodeRef.current.connect(analyserRef.current);
+        analyserRef.current.connect(ctx.destination);
+      } catch (e) {
+        console.error("Audio setup failed", e);
+      }
+    }
+
+    if (!analyserRef.current) return;
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    let lastBeatTime = 0;
+    const minBeatSeparation = 0.25; // Faster response (250ms)
+    const energyHistory: number[] = [];
+
+    const analyze = () => {
+      if (video.paused || video.ended) {
+        animationFrameRef.current = requestAnimationFrame(analyze);
+        return;
+      }
+
+      analyser.getByteFrequencyData(dataArray);
+
+      // Calculate energy and dominant frequency
+      let sum = 0;
+      let maxVal = 0;
+      let maxIndex = 0;
+      
+      // Focus on audible range for melody (bins 2 to ~150 for 1024 FFT at 44.1k is ~86Hz to ~6.4kHz)
+      const startBin = 2; 
+      const endBin = Math.min(bufferLength, 150);
+
+      for (let i = startBin; i < endBin; i++) {
+        const val = dataArray[i]!;
+        sum += val;
+        if (val > maxVal) {
+            maxVal = val;
+            maxIndex = i;
+        }
+      }
+      
+      const average = sum / (endBin - startBin);
+      
+      energyHistory.push(average);
+      if (energyHistory.length > 30) energyHistory.shift();
+      
+      const localAvg = energyHistory.reduce((a,b)=>a+b,0) / energyHistory.length;
+      
+      // Dynamic threshold based on sensitivity (1-10)
+      // Higher sensitivity (10) -> Lower threshold (1.1) -> More beats
+      const threshold = 1.0 + (11 - sensitivityRef.current) * 0.1;
+      const now = ctx.currentTime;
+
+      // Trigger if energy spikes above local average
+      if (average > localAvg * threshold && average > 25 && (now - lastBeatTime > minBeatSeparation)) {
+        lastBeatTime = now;
+        
+        // Calculate pitch (0-1) based on dominant frequency bin
+        const pitch = (maxIndex - startBin) / (endBin - startBin);
+        const clampedPitch = Math.max(0, Math.min(1, pitch));
+        
+        // Trigger beat
+        setBeatIndex((idx) => {
+            const newIdx = idx + 1;
+            handleBeatRef.current(newIdx, clampedPitch);
+            return newIdx;
+        });
+        setFlashCount(c => c + 1);
+        setBeats(b => [...b, video.currentTime]);
+      }
+
+      animationFrameRef.current = requestAnimationFrame(analyze);
+    };
+
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    analyze();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -434,6 +587,8 @@ export default function App() {
       setCombo(0);
       setMaxCombo(0);
       setShapesCompleted(0);
+      
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     }
   };
 
@@ -448,30 +603,11 @@ export default function App() {
       setShapesCompleted(0);
       setGamePhase("idle");
 
-      // start beat detection with slower tempo
-      stopDetectRef.current?.();
       setBeats([]);
-      stopDetectRef.current = await detectBeatsFromVideo(
-        videoRef.current,
-        (t) => {
-          setBeats((b) => {
-            if (b.length && Math.abs(b[b.length - 1]! - t) < 0.12) return b;
-            const next = [...b, t];
-
-            // Handle beat-based shape/drawing logic
-            setBeatIndex((idx) => {
-              const newIdx = idx + 1;
-              handleBeat(newIdx);
-              return newIdx;
-            });
-
-            return next;
-          });
-          // trigger fullscreen flash
-          setFlashCount((c) => c + 1);
-        },
-        { minBeatSeparation: 2.0, sensitivityMode: 'medium' as const } // Slower beats
-      );
+      
+      // Start audio analysis
+      setupAudioAnalysis();
+      
     } catch (err) {
       console.warn("play failed", err);
     }
@@ -480,29 +616,36 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      stopDetectRef.current?.();
       if (shapeTimeoutRef.current) clearTimeout(shapeTimeoutRef.current);
       if (drawTimerRef.current) clearInterval(drawTimerRef.current);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (audioContextRef.current) audioContextRef.current.close();
     };
   }, []);
 
-  // Spacebar to manually trigger next shape (for testing and manual mode)
+  // Spacebar to skip forward (Skip intro/low energy parts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && isPlaying && gamePhase === "idle") {
+      if (e.code === "Space" && isPlaying) {
         e.preventDefault();
-        setBeatIndex((idx) => {
-          const newIdx = idx + 1;
-          handleBeat(newIdx);
-          return newIdx;
-        });
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = Math.min(video.duration, video.currentTime + 10);
+          setGamePhase("idle");
+          setUserDrawing([]);
+          clearCanvas();
+          if (shapeTimeoutRef.current) {
+            clearTimeout(shapeTimeoutRef.current);
+            shapeTimeoutRef.current = null;
+          }
+        }
         setFlashCount((c) => c + 1);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, gamePhase, handleBeat]);
+  }, [isPlaying]);
 
   // Get canvas coordinates from mouse/touch event
   const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
@@ -627,7 +770,6 @@ export default function App() {
     setGamePhase("idle");
     setUserDrawing([]);
     clearCanvas();
-    stopDetectRef.current?.();
     if (drawTimerRef.current) clearInterval(drawTimerRef.current);
   }, [videoUrl]);
 
@@ -762,13 +904,26 @@ export default function App() {
                 Load Video
               </label>
             ) : !isPlaying ? (
-              <button className="btn" onClick={handleStart}>
-                Start Game
-              </button>
+              <div className="start-menu">
+                <div className="sensitivity-control">
+                  <label className="sensitivity-label">Intensity: {sensitivity}</label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={sensitivity}
+                    onChange={(e) => setSensitivity(Number(e.target.value))}
+                    className="sensitivity-slider"
+                  />
+                </div>
+                <button className="btn" onClick={handleStart}>
+                  Start Game
+                </button>
+              </div>
             ) : gamePhase === "idle" && shapesCompleted === 0 ? (
               <div className="waiting-hint">
                 <div className="waiting-text">Waiting for beat...</div>
-                <div className="waiting-subtext">or press SPACE</div>
+                <div className="waiting-subtext">SPACE to skip ahead</div>
               </div>
             ) : null}
           </div>
