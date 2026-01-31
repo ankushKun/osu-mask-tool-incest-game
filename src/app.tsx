@@ -626,36 +626,69 @@ export default function App() {
   // Load comedy mask image
   useEffect(() => {
     const img = new Image();
-    // Comedy mask SVG as data URL
+    // Theatrical comedy mask SVG as data URL
     img.src = `data:image/svg+xml,${encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 220">
         <defs>
           <filter id="shadow">
-            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.4"/>
           </filter>
         </defs>
-        <!-- Mask face outline -->
-        <ellipse cx="100" cy="100" rx="70" ry="85" fill="white" stroke="black" stroke-width="3" filter="url(#shadow)"/>
         
-        <!-- Left eye (happy) -->
-        <path d="M 65 75 Q 75 85 85 75" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="75" cy="78" r="3" fill="black"/>
+        <!-- Theatrical mask outline with curved top -->
+        <path d="M 100 10 
+                 Q 65 8 45 30
+                 Q 25 50 20 75
+                 L 20 130
+                 Q 20 165 35 185
+                 Q 50 205 75 210
+                 Q 87.5 212 100 212
+                 Q 112.5 212 125 210
+                 Q 150 205 165 185
+                 Q 180 165 180 130
+                 L 180 75
+                 Q 175 50 155 30
+                 Q 135 8 100 10 Z" 
+              fill="white" stroke="black" stroke-width="4" filter="url(#shadow)"/>
         
-        <!-- Right eye (happy) -->
-        <path d="M 115 75 Q 125 85 135 75" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="125" cy="78" r="3" fill="black"/>
+        <!-- Left eye area - squinted happy eye with wrinkles -->
+        <path d="M 50 75 Q 70 68 85 75" fill="black" stroke="black" stroke-width="3"/>
+        <path d="M 48 65 Q 65 60 80 65" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M 46 57 Q 63 52 78 57" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"/>
         
-        <!-- Big smile -->
-        <path d="M 60 130 Q 100 165 140 130" fill="none" stroke="black" stroke-width="5" stroke-linecap="round"/>
-        <!-- Smile fill -->
-        <path d="M 60 130 Q 100 165 140 130 Q 100 150 60 130" fill="rgba(0,0,0,0.1)"/>
+        <!-- Right eye area - squinted happy eye with wrinkles -->
+        <path d="M 115 75 Q 130 68 150 75" fill="black" stroke="black" stroke-width="3"/>
+        <path d="M 120 65 Q 135 60 152 65" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M 122 57 Q 137 52 154 57" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"/>
         
-        <!-- Nose -->
-        <ellipse cx="100" cy="105" rx="8" ry="12" fill="rgba(0,0,0,0.1)" stroke="black" stroke-width="2"/>
+        <!-- Nose bridge and nose -->
+        <path d="M 100 75 L 100 115" fill="none" stroke="black" stroke-width="3" stroke-linecap="round"/>
+        <ellipse cx="100" cy="120" rx="12" ry="16" fill="white" stroke="black" stroke-width="3"/>
+        <path d="M 88 120 Q 88 125 92 127" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"/>
+        <path d="M 112 120 Q 112 125 108 127" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"/>
         
-        <!-- Laugh lines -->
-        <path d="M 55 115 Q 60 125 60 135" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-        <path d="M 145 115 Q 140 125 140 135" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+        <!-- Large theatrical smile -->
+        <path d="M 55 145 
+                 Q 65 165 80 175
+                 Q 90 182 100 183
+                 Q 110 182 120 175
+                 Q 135 165 145 145
+                 Q 135 175 120 188
+                 Q 110 195 100 196
+                 Q 90 195 80 188
+                 Q 65 175 55 145 Z" 
+              fill="black" stroke="black" stroke-width="3"/>
+        
+        <!-- Smile highlight/teeth -->
+        <ellipse cx="100" cy="165" rx="35" ry="10" fill="white" opacity="0.9"/>
+        
+        <!-- Cheek laugh lines - left -->
+        <path d="M 45 125 Q 50 135 52 147" fill="none" stroke="black" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 38 132 Q 42 142 44 155" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round"/>
+        
+        <!-- Cheek laugh lines - right -->
+        <path d="M 155 125 Q 150 135 148 147" fill="none" stroke="black" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 162 132 Q 158 142 156 155" fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
     `)}`;
 
