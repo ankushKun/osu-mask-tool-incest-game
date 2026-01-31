@@ -10,7 +10,7 @@ type Shape = {
 };
 
 type GamePhase = "idle" | "showing" | "drawing" | "result";
-type ResultFeedback = { score: number; overlap: number; distance: number } | null;
+type ResultFeedback = { score: number; grade: string } | null;
 
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -29,6 +29,8 @@ export default function App() {
   const [beatIndex, setBeatIndex] = useState(0);
   const [resultFeedback, setResultFeedback] = useState<ResultFeedback>(null);
   const [shapesCompleted, setShapesCompleted] = useState(0);
+  const [brushSize, setBrushSize] = useState(24);
+  const [cursorPos, setCursorPos] = useState<Point | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -40,6 +42,8 @@ export default function App() {
   const lastShapeRef = useRef<Shape | null>(null);
   const userDrawingRef = useRef<Point[]>([]);
   const phaseRef = useRef<GamePhase>("idle");
+  const mousePosRef = useRef<Point | null>(null);
+  const keyHeldRef = useRef<boolean>(false);
 
   // Sync phase ref
   useEffect(() => {
@@ -160,12 +164,12 @@ export default function App() {
     ctx.restore();
   };
 
-  const drawUserPath = (points: Point[], ctx: CanvasRenderingContext2D) => {
+  const drawUserPath = (points: Point[], ctx: CanvasRenderingContext2D, lineWidth: number = 24) => {
     if (points.length < 2) return;
 
     ctx.save();
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 24;
+    ctx.lineWidth = lineWidth;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.shadowBlur = 20;
@@ -182,17 +186,15 @@ export default function App() {
     ctx.restore();
   };
 
-  // Calculate score based on overlap area and center distance
-  const calculateScore = useCallback((drawn: Point[], target: Shape): { score: number; overlap: number; distance: number } => {
+  // Calculate score based on exact area matching - overflow and underflow deduct points
+  const calculateScore = useCallback((drawn: Point[], target: Shape): { score: number; grade: string } => {
     if (drawn.length < 5 || target.points.length < 3) {
-      return { score: 0, overlap: 0, distance: 999 };
+      return { score: 0, grade: "MISS" };
     }
 
     const { boundingBox } = target;
     const shapeWidth = boundingBox.maxX - boundingBox.minX;
     const shapeHeight = boundingBox.maxY - boundingBox.minY;
-    const shapeCenterX = (boundingBox.minX + boundingBox.maxX) / 2;
-    const shapeCenterY = (boundingBox.minY + boundingBox.maxY) / 2;
     const shapeArea = shapeWidth * shapeHeight;
 
     // Calculate drawn path bounding box
@@ -206,17 +208,9 @@ export default function App() {
     };
     const drawnWidth = drawnBox.maxX - drawnBox.minX;
     const drawnHeight = drawnBox.maxY - drawnBox.minY;
-    const drawnCenterX = (drawnBox.minX + drawnBox.maxX) / 2;
-    const drawnCenterY = (drawnBox.minY + drawnBox.maxY) / 2;
     const drawnArea = drawnWidth * drawnHeight;
 
-    // Calculate center distance
-    const centerDistance = Math.sqrt(
-      Math.pow(shapeCenterX - drawnCenterX, 2) +
-      Math.pow(shapeCenterY - drawnCenterY, 2)
-    );
-
-    // Calculate intersection/overlap area
+    // Calculate intersection area
     const overlapMinX = Math.max(boundingBox.minX, drawnBox.minX);
     const overlapMinY = Math.max(boundingBox.minY, drawnBox.minY);
     const overlapMaxX = Math.min(boundingBox.maxX, drawnBox.maxX);
@@ -227,31 +221,51 @@ export default function App() {
       intersectionArea = (overlapMaxX - overlapMinX) * (overlapMaxY - overlapMinY);
     }
 
-    // IoU (Intersection over Union) style overlap
-    const unionArea = shapeArea + drawnArea - intersectionArea;
-    const overlapRatio = unionArea > 0 ? intersectionArea / unionArea : 0;
-
-    // NO INTERSECTION = 0 POINTS
+    // No intersection = 0 points
     if (intersectionArea === 0) {
-      return { score: 0, overlap: 0, distance: Math.round(centerDistance) };
+      return { score: 0, grade: "MISS" };
     }
 
-    // Distance bonus: closer = more bonus points (max 100 bonus)
-    const maxDistanceForPoints = Math.max(shapeWidth, shapeHeight) * 1.5;
-    const distanceScore = Math.max(0, 1 - centerDistance / maxDistanceForPoints);
-    const distanceBonus = Math.round(distanceScore * 100);
+    // Calculate underflow (missed area) and overflow (extra area)
+    const underflow = shapeArea - intersectionArea; // Area of shape not covered
+    const overflow = drawnArea - intersectionArea;  // Area drawn outside shape
 
-    // Overlap score: more overlap = more points (max 400 points for perfect overlap)
-    const overlapPoints = Math.round(overlapRatio * 400);
+    // Calculate accuracy as percentage (1.0 = perfect match)
+    // Penalize both underflow and overflow equally
+    const totalPenalty = underflow + overflow;
+    const accuracy = Math.max(0, 1 - (totalPenalty / shapeArea));
 
-    // Total score = overlap points + distance bonus
-    const totalScore = overlapPoints + distanceBonus;
+    // Also factor in bounds matching (position accuracy)
+    const boundsDiffX = Math.abs((drawnBox.minX + drawnBox.maxX) / 2 - (boundingBox.minX + boundingBox.maxX) / 2);
+    const boundsDiffY = Math.abs((drawnBox.minY + drawnBox.maxY) / 2 - (boundingBox.minY + boundingBox.maxY) / 2);
+    const maxBoundsDiff = Math.max(shapeWidth, shapeHeight);
+    const boundsAccuracy = Math.max(0, 1 - (boundsDiffX + boundsDiffY) / maxBoundsDiff);
 
-    return {
-      score: totalScore,
-      overlap: Math.round(overlapRatio * 100),
-      distance: Math.round(centerDistance),
-    };
+    // Combined accuracy (70% area, 30% bounds)
+    const combinedAccuracy = accuracy * 0.7 + boundsAccuracy * 0.3;
+
+    // Convert to score slabs: 100, 75, 50, 25, 0
+    let finalScore: number;
+    let grade: string;
+
+    if (combinedAccuracy >= 0.95) {
+      finalScore = 100;
+      grade = "PERFECT";
+    } else if (combinedAccuracy >= 0.80) {
+      finalScore = 75;
+      grade = "GREAT";
+    } else if (combinedAccuracy >= 0.60) {
+      finalScore = 50;
+      grade = "GOOD";
+    } else if (combinedAccuracy >= 0.40) {
+      finalScore = 25;
+      grade = "OK";
+    } else {
+      finalScore = 0;
+      grade = "MISS";
+    }
+
+    return { score: finalScore, grade };
   }, []);
 
   const clearCanvas = () => {
@@ -277,20 +291,17 @@ export default function App() {
     if (shape && drawn.length > 5) {
       const result = calculateScore(drawn, shape);
 
-      // Add combo bonus
-      const comboBonus = Math.floor(combo * 5);
-      const finalScore = result.score + comboBonus;
-
-      setScore(prev => prev + finalScore);
+      // Score is exactly the slab value - no combo bonus
+      setScore(prev => prev + result.score);
       setCombo(prev => {
         const newCombo = prev + 1;
         setMaxCombo(max => Math.max(max, newCombo));
         return newCombo;
       });
-      setResultFeedback({ score: finalScore, overlap: result.overlap, distance: result.distance });
+      setResultFeedback({ score: result.score, grade: result.grade });
       setShapesCompleted(prev => prev + 1);
     } else {
-      setResultFeedback({ score: 0, overlap: 0, distance: 999 });
+      setResultFeedback({ score: 0, grade: "MISS" });
     }
 
     setGamePhase("result");
@@ -425,6 +436,7 @@ export default function App() {
   }, []);
 
   // Spacebar to manually trigger next shape (for testing and manual mode)
+  // Z and X keys act as mouse down/up (like osu!)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space" && isPlaying && gamePhase === "idle") {
@@ -436,11 +448,43 @@ export default function App() {
         });
         setFlashCount((c) => c + 1);
       }
+
+      // Z or X key acts as mouse down for drawing
+      if ((e.code === "KeyZ" || e.code === "KeyX") && !e.repeat) {
+        if (phaseRef.current !== "drawing" || keyHeldRef.current) return;
+        keyHeldRef.current = true;
+        setIsDrawing(true);
+
+        const pos = mousePosRef.current;
+        if (pos) {
+          const newDrawing = [pos];
+          setUserDrawing(newDrawing);
+          userDrawingRef.current = newDrawing;
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Z or X key up acts as mouse up
+      if (e.code === "KeyZ" || e.code === "KeyX") {
+        if (!keyHeldRef.current) return;
+        keyHeldRef.current = false;
+        setIsDrawing(false);
+
+        // Evaluate drawing on key release
+        if (phaseRef.current === "drawing" && userDrawingRef.current.length > 15) {
+          endDrawingPhase();
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, gamePhase, handleBeat]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [isPlaying, gamePhase, handleBeat, endDrawingPhase]);
 
   // Get canvas coordinates from mouse/touch event
   const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
@@ -477,10 +521,15 @@ export default function App() {
   };
 
   const handleDrawMove = (e: React.MouseEvent | React.TouchEvent) => {
+    // Always track mouse position for Z/X key drawing and brush cursor
+    const coords = getCanvasCoords(e);
+    if (coords) {
+      mousePosRef.current = coords;
+      setCursorPos(coords);
+    }
+
     if (!isDrawing || gamePhase !== "drawing") return;
     e.preventDefault();
-
-    const coords = getCanvasCoords(e);
     if (!coords) return;
 
     const canvas = canvasRef.current;
@@ -499,7 +548,7 @@ export default function App() {
         if (lastShapeRef.current) {
           drawShapeHint(lastShapeRef.current, ctx);
         }
-        drawUserPath(updated, ctx);
+        drawUserPath(updated, ctx, brushSize);
       }
 
       return updated;
@@ -516,6 +565,13 @@ export default function App() {
       endDrawingPhase();
     }
   }, [gamePhase, endDrawingPhase]);
+
+  // Handle scroll wheel for brush size
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -4 : 4;
+    setBrushSize(prev => Math.min(100, Math.max(8, prev + delta)));
+  }, []);
 
   // Resize canvas to match video
   useEffect(() => {
@@ -600,7 +656,7 @@ export default function App() {
           width: "100%",
           height: "100%",
           pointerEvents: gamePhase === "drawing" ? "auto" : "none",
-          cursor: gamePhase === "drawing" ? "crosshair" : "default",
+          cursor: "none",
           touchAction: "none",
         }}
         onMouseDown={handleDrawStart}
@@ -611,7 +667,39 @@ export default function App() {
         onTouchMove={handleDrawMove}
         onTouchEnd={handleDrawEnd}
         onTouchCancel={handleDrawEnd}
+        onWheel={handleWheel}
       />
+
+      {/* Custom brush cursor */}
+      {gamePhase === "drawing" && cursorPos && (
+        <div
+          className="brush-cursor"
+          style={{
+            position: "absolute",
+            left: cursorPos.x,
+            top: cursorPos.y,
+            width: brushSize,
+            height: brushSize,
+            transform: "translate(-50%, -50%)",
+            borderRadius: "50%",
+            border: "3px solid rgba(255, 255, 255, 0.9)",
+            background: isDrawing ? "rgba(255, 102, 171, 0.3)" : "transparent",
+            pointerEvents: "none",
+            zIndex: 20,
+            transition: "background 0.1s ease",
+          }}
+        />
+      )}
+
+      {/* Drawing phase indicator */}
+      {gamePhase === "drawing" && isPlaying && (
+        <div className="phase-text">DRAW!</div>
+      )}
+
+      {/* Showing phase indicator */}
+      {gamePhase === "showing" && isPlaying && (
+        <div className="phase-text memorize">MEMORIZE!</div>
+      )}
 
       <div className="progress-bar" aria-hidden>
         <div
@@ -625,15 +713,10 @@ export default function App() {
             return (
               <div
                 key={i}
+                className="beat-marker"
                 style={{
-                  position: "absolute",
                   left: `${left}%`,
-                  top: 0,
-                  bottom: 0,
-                  width: 2,
-                  background: "red",
-                  opacity: 0.9,
-                  transform: "translateX(-1px)",
+                  transform: "translateX(-50%)",
                 }}
               />
             );
@@ -645,55 +728,82 @@ export default function App() {
         {/* render a transient fullscreen flash on each beat */}
         {flashCount > 0 ? <div key={flashCount} className="beat-flash" /> : null}
 
-        {/* Phase indicator */}
-        {gamePhase === "showing" && (
-          <div className="phase-indicator showing">
-            <div className="phase-icon">👁</div>
-          </div>
-        )}
-        {gamePhase === "drawing" && (
-          <div className="phase-indicator drawing">
-            <div className="phase-icon">✏️</div>
-          </div>
-        )}
-
-        {/* Result feedback */}
+        {/* Result feedback - grade and score */}
         {resultFeedback && (
-          <div className="result-feedback">
+          <div className={`result-feedback grade-${resultFeedback.grade.toLowerCase()}`}>
+            <div className="result-grade">{resultFeedback.grade}</div>
             <div className="result-score">+{resultFeedback.score}</div>
-            <div className="result-details">
-              <span className="overlap-stat">Overlap: {resultFeedback.overlap}%</span>
-              <span className="distance-stat">Distance: {resultFeedback.distance}px</span>
-            </div>
           </div>
         )}
 
         <div className="hud-top">
           <div className="score-container">
-            <div className="score">Score: {score.toLocaleString()}</div>
-            <div className="combo">{combo > 0 && `${combo}x COMBO`}</div>
+            <div className="score">
+              <span className="score-label">SCORE</span>
+              <span className="score-value">{score.toLocaleString().padStart(8, '0')}</span>
+            </div>
+            {combo > 0 && (
+              <div className="combo" key={combo}>
+                <span className="combo-count">{combo}</span>
+                <span className="combo-label">x</span>
+              </div>
+            )}
           </div>
           <div className="stats-container">
-            <div className="shapes-done">Shapes: {shapesCompleted}</div>
-            <div className="max-combo">Max Combo: {maxCombo}x</div>
+            <div className="shapes-done">
+              <span className="stat-icon">◆</span> {shapesCompleted}
+            </div>
+            <div className="max-combo">
+              <span className="stat-icon">★</span> {maxCombo}x
+            </div>
           </div>
-          <div className="timer">{timeLeft !== null ? formatTime(timeLeft) : "--:--"}</div>
+          <div className="timer">
+            <span className="timer-icon">⏱</span>
+            {timeLeft !== null ? formatTime(timeLeft) : "--:--"}
+          </div>
         </div>
 
         <div className="center-controls">
           <div className="controls">
             {!videoUrl ? (
-              <label className="btn" htmlFor="file">
-                Load Video
-              </label>
+              <div className="start-screen">
+                <div className="game-logo">
+                  <span className="logo-text">SHAPE</span>
+                  <span className="logo-accent">MEMORY</span>
+                </div>
+                <label className="btn" htmlFor="file">
+                  ▶ Load Video
+                </label>
+                <div className="rules">
+                  <h3>How to Play</h3>
+                  <ul>
+                    <li>A shape will flash on screen briefly</li>
+                    <li>Draw the exact shape from memory</li>
+                    <li>Match the size and position exactly</li>
+                    <li>Use mouse/touch or <kbd>Z</kbd>/<kbd>X</kbd> keys to draw</li>
+                  </ul>
+                  <div className="scoring-info">
+                    <h4>★ Scoring ★</h4>
+                    <div className="score-slabs">
+                      <span className="slab perfect">PERFECT 100</span>
+                      <span className="slab great">GREAT 75</span>
+                      <span className="slab good">GOOD 50</span>
+                      <span className="slab ok">OK 25</span>
+                      <span className="slab miss">MISS 0</span>
+                    </div>
+                    <p>Overflow or underflow deducts accuracy!</p>
+                  </div>
+                </div>
+              </div>
             ) : !isPlaying ? (
-              <button className="btn" onClick={handleStart}>
-                Start Game
-              </button>
-            ) : gamePhase === "idle" && shapesCompleted === 0 ? (
-              <div className="waiting-hint">
-                <div className="waiting-text">Waiting for beat...</div>
-                <div className="waiting-subtext">or press SPACE</div>
+              <div className="start-screen">
+                <div className="ready-text">READY?</div>
+                <button className="btn btn-start" onClick={handleStart}>
+                  ▶ START
+                </button>
+                <div className="rules rules-compact">
+                  <p><kbd>Z</kbd>/<kbd>X</kbd> or mouse to draw • Match shapes exactly</p>
+                </div>
               </div>
             ) : null}
           </div>

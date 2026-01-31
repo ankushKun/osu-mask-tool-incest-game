@@ -21,6 +21,9 @@ interface BeatDetectorConfig {
     useOnsetDetection: boolean;
     useEnergySpikes: boolean;
     sensitivityMode: 'low' | 'medium' | 'high';
+    // BPM sync options
+    beatsToAnalyze: number;      // How many beats to collect before syncing to BPM
+    bpmSyncEnabled: boolean;      // Enable constant BPM mode after detection
 }
 
 const DEFAULT_CONFIG: BeatDetectorConfig = {
@@ -45,6 +48,8 @@ const DEFAULT_CONFIG: BeatDetectorConfig = {
     useOnsetDetection: true,
     useEnergySpikes: true,
     sensitivityMode: 'medium',
+    beatsToAnalyze: 6,           // Collect 6 beats before switching to constant BPM
+    bpmSyncEnabled: true,        // Enable constant BPM mode
 };
 
 // Sensitivity presets
@@ -92,8 +97,44 @@ export async function detectBeatsFromVideo(
     let lastBeatTime = -Infinity;
     let raf = 0;
 
-    // Tempo estimation
+    // Tempo estimation and constant BPM mode
     const beatTimes: number[] = [];
+    let detectedBPM: number | null = null;
+    let bpmLocked = false;
+    let nextScheduledBeat: number | null = null;
+    let bpmSyncStartTime: number | null = null;
+
+    function calculateBPM(): number | null {
+        if (beatTimes.length < cfg.beatsToAnalyze) return null;
+
+        // Calculate intervals between consecutive beats
+        const intervals: number[] = [];
+        for (let i = 1; i < beatTimes.length; i++) {
+            intervals.push(beatTimes[i]! - beatTimes[i - 1]!);
+        }
+
+        // Filter out outliers (intervals that are too short or too long)
+        const validIntervals = intervals.filter(i => i >= 0.25 && i <= 2.0);
+        if (validIntervals.length < 3) return null;
+
+        // Use median for robustness
+        const sorted = [...validIntervals].sort((a, b) => a - b);
+        const medianInterval = sorted[Math.floor(sorted.length / 2)]!;
+
+        // Convert to BPM
+        const bpm = 60 / medianInterval;
+
+        // Clamp to reasonable BPM range (60-200)
+        if (bpm >= 60 && bpm <= 200) {
+            return bpm;
+        }
+
+        // Try to find if it's double-time or half-time
+        if (bpm > 200 && bpm <= 400) return bpm / 2;
+        if (bpm >= 30 && bpm < 60) return bpm * 2;
+
+        return null;
+    }
 
     function dbToLinear(db: number): number {
         return Math.pow(10, db / 20);
@@ -240,28 +281,71 @@ export async function detectBeatsFromVideo(
         // Method 3: Onset detection
         const onsetBeat = detectOnset();
 
+        // ===== CONSTANT BPM MODE =====
+        // After collecting enough beats, switch to constant BPM firing
+        if (cfg.bpmSyncEnabled && bpmLocked && detectedBPM && nextScheduledBeat !== null) {
+            // Check if we've reached the next scheduled beat
+            if (time >= nextScheduledBeat) {
+                const beatInterval = 60 / detectedBPM;
+                lastBeatTime = nextScheduledBeat;
+                nextScheduledBeat = nextScheduledBeat + beatInterval;
+
+                try {
+                    onBeat(time, 0.8); // Consistent intensity for synced beats
+                } catch (e) {
+                    console.error("Beat callback error:", e);
+                }
+            }
+
+            // Shift frequency data history
+            prevPrevFreqData.set(prevFreqData);
+            prevFreqData.set(freqData);
+
+            raf = requestAnimationFrame(analyze);
+            return;
+        }
+
+        // ===== DETECTION MODE (before BPM lock) =====
         // Combine methods with voting
         const votes = [fluxBeat, bassBeat, onsetBeat].filter(Boolean).length;
 
         if (votes >= 1 && timeSinceLastBeat > cfg.minBeatSeparation) {
             // Stronger confidence with more votes
             if (votes >= 2 || (votes === 1 && timeSinceLastBeat > cfg.minBeatSeparation * 1.5)) {
-                isBeat = true;
+                lastBeatTime = time;
+                beatTimes.push(time);
+
+                // Keep only recent beats for BPM calculation
+                while (beatTimes.length > cfg.beatsToAnalyze + 2) {
+                    beatTimes.shift();
+                }
+
                 // Calculate beat intensity (0-1)
                 const fluxRatio = fluxHistory.length > 0 ?
                     flux / (Math.max(...fluxHistory) || 1) : 0.5;
-                beatIntensity = Math.min(1, Math.max(0, fluxRatio));
-            }
-        }
+                const beatIntensity = Math.min(1, Math.max(0, fluxRatio));
 
-        if (isBeat) {
-            lastBeatTime = time;
-            updateBPMEstimate(time);
+                try {
+                    onBeat(time, beatIntensity);
+                } catch (e) {
+                    console.error("Beat callback error:", e);
+                }
 
-            try {
-                onBeat(time, beatIntensity);
-            } catch (e) {
-                console.error("Beat callback error:", e);
+                // Try to lock BPM after enough beats
+                if (cfg.bpmSyncEnabled && !bpmLocked && beatTimes.length >= cfg.beatsToAnalyze) {
+                    const calculatedBPM = calculateBPM();
+                    if (calculatedBPM) {
+                        detectedBPM = calculatedBPM;
+                        bpmLocked = true;
+                        bpmSyncStartTime = time;
+
+                        // Schedule next beat based on detected BPM
+                        const beatInterval = 60 / detectedBPM;
+                        nextScheduledBeat = time + beatInterval;
+
+                        console.log(`BPM locked at ${Math.round(detectedBPM)} BPM`);
+                    }
+                }
             }
         }
 
