@@ -1262,6 +1262,41 @@ export default function App() {
             <div key={combo} className={`combo ${combo > 0 ? 'visible' : ''}`}>
               {combo > 0 ? `${combo}x` : ''}
             </div>
+
+            {/* Video History inside score box */}
+            {videoHistory.length > 0 && (
+              <div className="video-history-compact">
+                <div className="history-header-compact">
+                  <span className="history-title-compact">RECENT</span>
+                  <button
+                    className="history-clear-compact"
+                    onClick={clearHistory}
+                    title="Clear history"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="history-list-compact">
+                  {videoHistory.slice(0, 5).map((item, idx) => {
+                    const isAvailable = !!item.file;
+                    return (
+                      <button
+                        key={`${item.name}-${item.timestamp}`}
+                        className={`history-item-compact ${!isAvailable ? 'unavailable' : ''}`}
+                        onClick={() => isAvailable && loadFromHistory(item)}
+                        disabled={!isAvailable}
+                        title={isAvailable ? item.name : 'File not available'}
+                      >
+                        <div className="history-item-number-compact">{idx + 1}</div>
+                        <div className="history-item-name-compact">
+                          {item.name.length > 20 ? item.name.substring(0, 20) + '...' : item.name}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <div className="stats-container">
             <div>Shapes: {shapesCompleted}</div>
@@ -1278,48 +1313,8 @@ export default function App() {
               <div className="menu-screen">
                 <div className="menu-title">DISCO</div>
                 <label className="btn" htmlFor="file">
-                  Load Video
+                  Load New Video
                 </label>
-
-                {videoHistory.length > 0 && (
-                  <div className="video-history">
-                    <div className="history-header">
-                      <span className="history-title">Recent Videos</span>
-                      <button
-                        className="history-clear"
-                        onClick={clearHistory}
-                        title="Clear history"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <div className="history-list">
-                      {videoHistory.map((item, idx) => {
-                        const isAvailable = !!item.file;
-                        return (
-                          <button
-                            key={`${item.name}-${item.timestamp}`}
-                            className={`history-item ${!isAvailable ? 'unavailable' : ''}`}
-                            onClick={() => isAvailable && loadFromHistory(item)}
-                            disabled={!isAvailable}
-                            title={!isAvailable ? 'File not available - please reload' : undefined}
-                          >
-                            <div className="history-item-number">{idx + 1}</div>
-                            <div className="history-item-content">
-                              <div className="history-item-name">
-                                {item.name}
-                                {!isAvailable && <span className="unavailable-badge">⚠</span>}
-                              </div>
-                              <div className="history-item-date">
-                                {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             ) : !isPlaying ? (
               <div className="start-menu">
