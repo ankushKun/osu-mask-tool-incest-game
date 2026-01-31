@@ -1,6 +1,66 @@
 import "./index.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 
+// IndexedDB utilities for video storage
+const DB_NAME = 'VideoHistoryDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'videos';
+
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+  });
+};
+
+const saveVideoToDB = async (name: string, file: File): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put({ id: name, file, timestamp: Date.now(), size: file.size });
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const getVideoFromDB = async (name: string): Promise<File | null> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(name);
+
+    request.onsuccess = () => {
+      const result = request.result;
+      resolve(result ? result.file : null);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const clearVideosDB = async (): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.clear();
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
 type Point = { x: number; y: number };
 type Shape = {
   points: Point[];
@@ -14,6 +74,13 @@ type Shape = {
 
 type GamePhase = "idle" | "showing" | "drawing" | "result";
 type ResultFeedback = { score: number; accuracy: number; distance: number; rating: string } | null;
+type VideoHistoryItem = {
+  name: string;
+  timestamp: number;
+  size?: number;
+  file?: File;
+  loading?: boolean;
+};
 
 function getPointSegmentDistance(p: Point, v: Point, w: Point) {
   const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
@@ -54,6 +121,8 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState(5);
   const [isUnmasked, setIsUnmasked] = useState(false);
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
+  const [videoHistory, setVideoHistory] = useState<VideoHistoryItem[]>([]);
+  const [currentVideoName, setCurrentVideoName] = useState<string>("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -67,6 +136,7 @@ export default function App() {
   const sensitivityRef = useRef(5);
   const unmaskTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const comedyMaskImageRef = useRef<HTMLImageElement | null>(null);
+  const fileMapRef = useRef<Map<string, File>>(new Map()); // Store File objects in memory
 
   // Audio analysis refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -585,6 +655,90 @@ export default function App() {
     analyze();
   };
 
+  const addToHistory = async (name: string, file: File) => {
+    try {
+      // Save to IndexedDB
+      await saveVideoToDB(name, file);
+    } catch (e) {
+      console.error('Failed to save video to IndexedDB', e);
+    }
+
+    const newItem: VideoHistoryItem = {
+      name,
+      timestamp: Date.now(),
+      size: file.size,
+      file,
+    };
+
+    setVideoHistory(prev => {
+      // Remove duplicate if exists (same name)
+      const filtered = prev.filter(item => item.name !== name);
+      const updated = [newItem, ...filtered].slice(0, 10);
+
+      // Save metadata to localStorage
+      try {
+        const metadata = updated.map(({ name, timestamp, size }) => ({ name, timestamp, size }));
+        localStorage.setItem('videoHistory', JSON.stringify(metadata));
+      } catch (e) {
+        console.error('Failed to save video history metadata', e);
+      }
+
+      return updated;
+    });
+  };
+
+  const loadFromHistory = async (item: VideoHistoryItem) => {
+    // Check if we have the File object
+    let file = item.file;
+
+    if (!file) {
+      // Try to load from IndexedDB
+      try {
+        file = await getVideoFromDB(item.name);
+        if (!file) {
+          console.error('File not found in IndexedDB');
+          return;
+        }
+
+        // Update history with loaded file
+        setVideoHistory(prev => prev.map(h =>
+          h.name === item.name ? { ...h, file } : h
+        ));
+      } catch (e) {
+        console.error('Failed to load file from IndexedDB', e);
+        return;
+      }
+    }
+
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+
+    // Create blob URL from File object
+    const url = URL.createObjectURL(file);
+    urlRef.current = url;
+    setVideoUrl(url);
+    setCurrentVideoName(item.name);
+    setIsPlaying(false);
+    setBeatIndex(0);
+    setScore(0);
+    setCombo(0);
+    setMaxCombo(0);
+    setShapesCompleted(0);
+
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+  };
+
+  const clearHistory = async () => {
+    setVideoHistory([]);
+    fileMapRef.current.clear();
+
+    try {
+      localStorage.removeItem('videoHistory');
+      await clearVideosDB();
+    } catch (e) {
+      console.error('Failed to clear history', e);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -592,6 +746,7 @@ export default function App() {
       const url = URL.createObjectURL(file);
       urlRef.current = url;
       setVideoUrl(url);
+      setCurrentVideoName(file.name);
       setIsPlaying(false);
       setBeatIndex(0);
       setScore(0);
@@ -599,7 +754,8 @@ export default function App() {
       setMaxCombo(0);
       setShapesCompleted(0);
 
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      // Add to history with File object
+      addToHistory(file.name, file);
     }
   };
 
@@ -623,6 +779,40 @@ export default function App() {
       console.warn("play failed", err);
     }
   };
+
+  // Load video history from localStorage and IndexedDB
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const stored = localStorage.getItem('videoHistory');
+        if (stored) {
+          const metadata = JSON.parse(stored) as Array<{ name: string; timestamp: number; size?: number }>;
+
+          // Load files from IndexedDB
+          const historyWithFiles = await Promise.all(
+            metadata.slice(0, 10).map(async (item) => {
+              try {
+                const file = await getVideoFromDB(item.name);
+                return {
+                  ...item,
+                  file: file || undefined,
+                };
+              } catch (e) {
+                console.error(`Failed to load video ${item.name} from DB`, e);
+                return item;
+              }
+            })
+          );
+
+          setVideoHistory(historyWithFiles);
+        }
+      } catch (e) {
+        console.error('Failed to load video history', e);
+      }
+    };
+
+    loadHistory();
+  }, []);
 
   // Load comedy mask image
   useEffect(() => {
@@ -1085,9 +1275,52 @@ export default function App() {
         <div className="center-controls">
           <div className="controls">
             {!videoUrl ? (
-              <label className="btn" htmlFor="file">
-                Load Video
-              </label>
+              <div className="menu-screen">
+                <div className="menu-title">DISCO</div>
+                <label className="btn" htmlFor="file">
+                  Load Video
+                </label>
+
+                {videoHistory.length > 0 && (
+                  <div className="video-history">
+                    <div className="history-header">
+                      <span className="history-title">Recent Videos</span>
+                      <button
+                        className="history-clear"
+                        onClick={clearHistory}
+                        title="Clear history"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="history-list">
+                      {videoHistory.map((item, idx) => {
+                        const isAvailable = !!item.file;
+                        return (
+                          <button
+                            key={`${item.name}-${item.timestamp}`}
+                            className={`history-item ${!isAvailable ? 'unavailable' : ''}`}
+                            onClick={() => isAvailable && loadFromHistory(item)}
+                            disabled={!isAvailable}
+                            title={!isAvailable ? 'File not available - please reload' : undefined}
+                          >
+                            <div className="history-item-number">{idx + 1}</div>
+                            <div className="history-item-content">
+                              <div className="history-item-name">
+                                {item.name}
+                                {!isAvailable && <span className="unavailable-badge">⚠</span>}
+                              </div>
+                              <div className="history-item-date">
+                                {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : !isPlaying ? (
               <div className="start-menu">
                 <div className="sensitivity-control">
