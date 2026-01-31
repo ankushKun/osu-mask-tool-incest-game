@@ -53,6 +53,7 @@ export default function App() {
   const [shapesCompleted, setShapesCompleted] = useState(0);
   const [sensitivity, setSensitivity] = useState(5);
   const [isUnmasked, setIsUnmasked] = useState(false);
+  const [cursorPos, setCursorPos] = useState<Point | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -712,9 +713,10 @@ export default function App() {
     };
   }, []);
 
-  // Spacebar to skip forward (Skip intro/low energy parts)
+  // Keyboard controls: Spacebar to skip, Z/X for drawing (osu! style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Spacebar to skip forward
       if (e.code === "Space" && isPlaying) {
         e.preventDefault();
         const video = videoRef.current;
@@ -729,18 +731,57 @@ export default function App() {
           }
         }
         setFlashCount((c) => c + 1);
+        return;
+      }
+
+      // Z or X key to start drawing (osu! style)
+      if ((e.code === "KeyZ" || e.code === "KeyX") && !e.repeat) {
+        if (gamePhase !== "drawing" && gamePhase !== "showing") return;
+        e.preventDefault();
+
+        const coords = getCanvasCoords();
+        if (!coords) return;
+
+        setIsDrawing(true);
+        const newDrawing = [coords];
+        setUserDrawing(newDrawing);
+        userDrawingRef.current = newDrawing;
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Z or X key release to end drawing
+      if (e.code === "KeyZ" || e.code === "KeyX") {
+        if (gamePhase !== "drawing" && gamePhase !== "showing") return;
+        e.preventDefault();
+
+        setIsDrawing(false);
+
+        // Immediately evaluate and end drawing phase
+        if (gamePhase === "drawing" && userDrawingRef.current.length > 15) {
+          endDrawingPhase();
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [isPlaying, gamePhase, endDrawingPhase]);
 
-  // Get canvas coordinates from mouse/touch event
-  const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
+  // Get canvas coordinates from mouse/touch event or current cursor
+  const getCanvasCoords = (e?: React.MouseEvent | React.TouchEvent | MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
+
+    if (!e) {
+      // Use stored cursor position for keyboard events
+      return cursorPos;
+    }
 
     if ('touches' in e) {
       const touch = e.touches[0];
@@ -771,10 +812,14 @@ export default function App() {
   };
 
   const handleDrawMove = (e: React.MouseEvent | React.TouchEvent) => {
+    const coords = getCanvasCoords(e);
+    if (coords) {
+      setCursorPos(coords); // Always track cursor position
+    }
+
     if (!isDrawing || (gamePhase !== "drawing" && gamePhase !== "showing")) return;
     e.preventDefault();
 
-    const coords = getCanvasCoords(e);
     if (!coords) return;
 
     const canvas = canvasRef.current;
@@ -815,6 +860,54 @@ export default function App() {
       endDrawingPhase();
     }
   }, [gamePhase, endDrawingPhase]);
+
+  // Track mouse position for keyboard drawing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      setCursorPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
+
+      // If currently drawing with keyboard, add points
+      if (isDrawing && (gamePhase === "drawing" || gamePhase === "showing")) {
+        const coords = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        };
+
+        setUserDrawing((prev) => {
+          const updated = [...prev, coords];
+          userDrawingRef.current = updated;
+
+          // Redraw
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            clearCanvas();
+
+            if (phaseRef.current === "showing" && lastShapeRef.current) {
+              drawShape(lastShapeRef.current, ctx);
+            } else {
+              ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              if (lastShapeRef.current) {
+                drawShapeHint(lastShapeRef.current, ctx);
+              }
+            }
+            drawLaserTrail(updated, ctx);
+          }
+
+          return updated;
+        });
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [isDrawing, gamePhase]);
 
   // Resize canvas to match video
   useEffect(() => {
