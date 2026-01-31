@@ -48,6 +48,7 @@ export default function App() {
   const [resultFeedback, setResultFeedback] = useState<ResultFeedback>(null);
   const [shapesCompleted, setShapesCompleted] = useState(0);
   const [sensitivity, setSensitivity] = useState(5);
+  const [isUnmasked, setIsUnmasked] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -59,6 +60,7 @@ export default function App() {
   const userDrawingRef = useRef<Point[]>([]);
   const phaseRef = useRef<GamePhase>("idle");
   const sensitivityRef = useRef(5);
+  const unmaskTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Audio analysis refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -97,19 +99,32 @@ export default function App() {
     
     const centerY = Math.random() * (height - margin * 2) + margin;
 
-    // Generate organic blob shape - larger and more visible
+    // Generate Mask Shape (Fox/Kitsune style)
     const points: Point[] = [];
-    const numPoints = 6 + Math.floor(Math.random() * 4); // 6-9 points (simpler shapes)
-    const baseRadius = 80 + Math.random() * 60; // 80-140px radius (larger)
+    const numPoints = 30; // More points for detail
+    const baseRadius = 90 + Math.random() * 40; 
 
     for (let i = 0; i < numPoints; i++) {
       const angle = (i / numPoints) * Math.PI * 2;
-      const radiusVariation = 0.75 + Math.random() * 0.5; // Less variation for clearer shapes
-      const radius = baseRadius * radiusVariation;
+      
+      // Base oval shape
+      let r = baseRadius * (0.85 + 0.15 * Math.sin(angle + Math.PI/2)); 
+
+      // Ears (Top-Left ~3.9 rad, Top-Right ~5.5 rad) - Clockwise: 0=Right, PI/2=Bottom, PI=Left, 3PI/2=Top
+      const ear1 = Math.exp(-Math.pow(angle - 3.9, 2) / 0.2);
+      const ear2 = Math.exp(-Math.pow(angle - 5.5, 2) / 0.2);
+      
+      // Chin (Bottom ~1.57 rad)
+      const chin = Math.exp(-Math.pow(angle - 1.57, 2) / 0.6);
+
+      r += baseRadius * (0.6 * ear1 + 0.6 * ear2 + 0.4 * chin);
+      
+      // Slight organic variation
+      r *= (0.95 + Math.random() * 0.1);
 
       points.push({
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
+        x: centerX + Math.cos(angle) * r,
+        y: centerY + Math.sin(angle) * r,
       });
     }
 
@@ -392,6 +407,15 @@ export default function App() {
         });
         setResultFeedback({ score: finalScore, accuracy: result.accuracy, distance: result.distance, rating: result.rating });
         setShapesCompleted(prev => prev + 1);
+
+        // Unmasking Logic: If score > 50, reveal the video
+        if (result.score > 50) {
+          setIsUnmasked(true);
+          if (unmaskTimeoutRef.current) clearTimeout(unmaskTimeoutRef.current);
+          unmaskTimeoutRef.current = setTimeout(() => {
+            setIsUnmasked(false);
+          }, 3000); // Reveal for 3 seconds
+        }
       }
     } else {
       setResultFeedback({ score: 0, accuracy: 0, distance: 0, rating: "MISS" });
@@ -539,18 +563,22 @@ export default function App() {
       
       const average = sum / (endBin - startBin);
       
-      energyHistory.push(average);
-      if (energyHistory.length > 30) energyHistory.shift();
-      
-      const localAvg = energyHistory.reduce((a,b)=>a+b,0) / energyHistory.length;
+      // Calculate local average from history BEFORE adding current
+      const localAvg = energyHistory.length ? energyHistory.reduce((a,b)=>a+b,0) / energyHistory.length : 0;
       
       // Dynamic threshold based on sensitivity (1-10)
-      // Higher sensitivity (10) -> Lower threshold (1.1) -> More beats
-      const threshold = 1.0 + (11 - sensitivityRef.current) * 0.1;
+      // Higher sensitivity (10) -> Lower threshold (1.05) -> More beats
+      // Lower sensitivity (1) -> Higher threshold (1.5) -> Fewer beats
+      const threshold = 1.0 + (11 - sensitivityRef.current) * 0.05;
       const now = ctx.currentTime;
 
       // Trigger if energy spikes above local average
-      if (average > localAvg * threshold && average > 25 && (now - lastBeatTime > minBeatSeparation)) {
+      // Also add a failsafe: if no beat for 3 seconds and there is sound, trigger one
+      const timeSinceBeat = now - lastBeatTime;
+      const isBeat = average > localAvg * threshold && average > 25 && (timeSinceBeat > minBeatSeparation);
+      const isFailsafe = timeSinceBeat > 3.0 && average > 25;
+
+      if (isBeat || isFailsafe) {
         lastBeatTime = now;
         
         // Calculate pitch (0-1) based on dominant frequency bin
@@ -566,6 +594,10 @@ export default function App() {
         setFlashCount(c => c + 1);
         setBeats(b => [...b, video.currentTime]);
       }
+
+      // Update history
+      energyHistory.push(average);
+      if (energyHistory.length > 45) energyHistory.shift(); // Increased buffer
 
       animationFrameRef.current = requestAnimationFrame(analyze);
     };
@@ -620,6 +652,7 @@ export default function App() {
       if (drawTimerRef.current) clearInterval(drawTimerRef.current);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (audioContextRef.current) audioContextRef.current.close();
+      if (unmaskTimeoutRef.current) clearTimeout(unmaskTimeoutRef.current);
     };
   }, []);
 
@@ -793,12 +826,15 @@ export default function App() {
 
       <video
         ref={videoRef}
-        className="game-video opacity-20"
+        className="game-video"
         src={videoUrl || undefined}
         playsInline
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleTimeUpdate}
       />
+
+      {/* Mask Overlay - obscures video until unmasked */}
+      <div className={`video-overlay ${isUnmasked ? 'unmasked' : ''}`} />
 
       <canvas
         ref={canvasRef}

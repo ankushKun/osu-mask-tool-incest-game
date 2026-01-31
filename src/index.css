@@ -120,6 +120,21 @@ body::before {
   background: #000;
 }
 
+/* The mask layer that hides the video */
+.video-overlay {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0.95;
+  z-index: 2; /* Above video (0), below canvas (5) */
+  transition: opacity 0.3s ease-out;
+  pointer-events: none;
+}
+
+.video-overlay.unmasked {
+  opacity: 0;
+}
+
 .file-input {
   display: none;
 }
