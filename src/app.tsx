@@ -71,6 +71,7 @@ type Shape = {
   centerY?: number;
   size?: number;
 };
+type Explosion = { x: number; y: number; id: number };
 
 type GamePhase = "idle" | "showing" | "drawing" | "result";
 type ResultFeedback = { score: number; accuracy: number; distance: number; rating: string } | null;
@@ -123,6 +124,7 @@ export default function App() {
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
   const [videoHistory, setVideoHistory] = useState<VideoHistoryItem[]>([]);
   const [currentVideoName, setCurrentVideoName] = useState<string>("");
+  const [explosion, setExplosion] = useState<Explosion | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -164,15 +166,7 @@ export default function App() {
     // Random center point with better margins
     const margin = 150;
 
-    let centerX;
-    if (pitch !== undefined) {
-      // Map pitch (0-1) to x position (Piano tiles style)
-      // 0 (Low pitch) -> Left, 1 (High pitch) -> Right
-      centerX = margin + pitch * (width - margin * 2);
-    } else {
-      centerX = Math.random() * (width - margin * 2) + margin;
-    }
-
+    const centerX = Math.random() * (width - margin * 2) + margin;
     const centerY = Math.random() * (height - margin * 2) + margin;
 
     // Size varies
@@ -464,6 +458,12 @@ export default function App() {
           unmaskTimeoutRef.current = setTimeout(() => {
             setIsUnmasked(false);
           }, 3000); // Reveal for 3 seconds
+
+          // Trigger explosion effect
+          if (shape.centerX && shape.centerY) {
+            setExplosion({ x: shape.centerX, y: shape.centerY, id: Date.now() });
+            setTimeout(() => setExplosion(null), 600);
+          }
         }
       }
     } else {
@@ -1154,6 +1154,38 @@ export default function App() {
 
   return (
     <div className="game-root" ref={gameRootRef}>
+      <style>{`
+        @keyframes explodeRing {
+          0% { transform: scale(0.5); opacity: 1; border-width: 10px; }
+          100% { transform: scale(2.5); opacity: 0; border-width: 0px; }
+        }
+        @keyframes explodeFlash {
+          0% { transform: scale(0); opacity: 1; }
+          50% { transform: scale(1.5); opacity: 0.8; }
+          100% { transform: scale(2); opacity: 0; }
+        }
+        .explosion-container {
+          position: absolute;
+          pointer-events: none;
+          z-index: 100;
+          width: 0; height: 0;
+        }
+        .explosion-ring {
+          position: absolute;
+          top: -50px; left: -50px; width: 100px; height: 100px;
+          border-radius: 50%;
+          border: 5px solid #fff;
+          box-shadow: 0 0 20px #fff, 0 0 40px #ff00ff;
+          animation: explodeRing 0.6s ease-out forwards;
+        }
+        .explosion-flash {
+          position: absolute;
+          top: -50px; left: -50px; width: 100px; height: 100px;
+          border-radius: 50%;
+          background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0) 70%);
+          animation: explodeFlash 0.4s ease-out forwards;
+        }
+      `}</style>
       <div className="scanlines" />
       <input
         id="file"
@@ -1197,6 +1229,13 @@ export default function App() {
         onTouchEnd={handleDrawEnd}
         onTouchCancel={handleDrawEnd}
       />
+
+      {explosion && (
+        <div className="explosion-container" style={{ left: explosion.x, top: explosion.y }}>
+          <div className="explosion-ring" />
+          <div className="explosion-flash" />
+        </div>
+      )}
 
       <div className="progress-bar" aria-hidden>
         <div
