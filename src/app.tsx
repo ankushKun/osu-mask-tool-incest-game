@@ -135,6 +135,8 @@ export default function App() {
   const lastShapeRef = useRef<Shape | null>(null);
   const userDrawingRef = useRef<Point[]>([]);
   const phaseRef = useRef<GamePhase>("idle");
+  const cursorPosRef = useRef<Point | null>(null);
+  const isDrawingRef = useRef(false);
   const sensitivityRef = useRef(5);
   const unmaskTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const comedyMaskImageRef = useRef<HTMLImageElement | null>(null);
@@ -151,6 +153,10 @@ export default function App() {
   useEffect(() => {
     phaseRef.current = gamePhase;
   }, [gamePhase]);
+
+  useEffect(() => {
+    isDrawingRef.current = isDrawing;
+  }, [isDrawing]);
 
   useEffect(() => {
     sensitivityRef.current = sensitivity;
@@ -298,14 +304,6 @@ export default function App() {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Draw the cursor head (Laser point)
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = "#00ffff";
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(lastPoint.x, lastPoint.y, 6, 0, Math.PI * 2);
-    ctx.fill();
-
     // Draw the fading trail
     const startIndex = Math.max(0, points.length - trailLength);
 
@@ -332,6 +330,46 @@ export default function App() {
       ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
       ctx.lineWidth = 3 * opacity + 1;
       ctx.stroke();
+    }
+
+    ctx.restore();
+  };
+
+  const drawRainbowCursor = (ctx: CanvasRenderingContext2D, pos: Point, isClicking: boolean) => {
+    const time = Date.now();
+    const hue = (time / 2) % 360;
+    const intensity = isClicking ? 2 : 1;
+    const baseSize = 6;
+
+    ctx.save();
+    
+    // Intense glow
+    ctx.shadowBlur = (isClicking ? 40 : 20);
+    ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+    
+    // Core
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, baseSize * intensity, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Outer ring / Laser effect
+    ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
+    ctx.lineWidth = 2 * intensity;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, (baseSize + 4) * intensity, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Add some "sparks" or lines if clicking
+    if (isClicking) {
+        ctx.beginPath();
+        ctx.moveTo(pos.x - 20, pos.y);
+        ctx.lineTo(pos.x + 20, pos.y);
+        ctx.moveTo(pos.x, pos.y - 20);
+        ctx.lineTo(pos.x, pos.y + 20);
+        ctx.strokeStyle = `hsl(${hue}, 100%, 80%)`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
     }
 
     ctx.restore();
@@ -472,18 +510,6 @@ export default function App() {
 
     setGamePhase("result");
 
-    // Show result feedback briefly, then show the correct shape
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (canvas && ctx && shape) {
-      clearCanvas();
-      // Draw the correct shape as reference
-      drawShape(shape, ctx, 0.5);
-      // Draw user's attempt on top
-      if (drawn.length > 1) {
-        drawUserPath(drawn, ctx);
-      }
-    }
 
     // Clear result after very short delay (next beat will handle it anyway)
     setTimeout(() => {
@@ -496,10 +522,6 @@ export default function App() {
   }, [combo, calculateScore]);
 
   const handleBeat = useCallback((beatIdx: number, pitch?: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
 
     // Clear any pending timeouts
     if (shapeTimeoutRef.current) {
@@ -520,9 +542,6 @@ export default function App() {
     setCurrentShape(shape);
     setGamePhase("showing");
 
-    clearCanvas();
-    drawShape(shape, ctx);
-
     // Clear previous drawing immediately
     setUserDrawing([]);
     userDrawingRef.current = [];
@@ -531,18 +550,6 @@ export default function App() {
     shapeTimeoutRef.current = setTimeout(() => {
       setGamePhase("drawing");
       setResultFeedback(null);
-
-      clearCanvas();
-      ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Show hint immediately so user knows what to draw
-      drawShapeHint(shape, ctx);
-
-      // Redraw user path if they started tracing during "showing" phase
-      if (userDrawingRef.current.length > 0) {
-        drawLaserTrail(userDrawingRef.current, ctx);
-      }
     }, 600);
   }, [generateRandomShape, endDrawingPhase]);
 
@@ -903,6 +910,59 @@ export default function App() {
     };
   }, []);
 
+  // Render Loop
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const render = () => {
+      if (!isPlaying) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // Clear
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw Background/Game Elements
+      if (phaseRef.current === "showing" && lastShapeRef.current) {
+        drawShape(lastShapeRef.current, ctx);
+      } else if (phaseRef.current === "drawing") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (lastShapeRef.current) {
+          drawShapeHint(lastShapeRef.current, ctx);
+        }
+      } else if (phaseRef.current === "result" && lastShapeRef.current) {
+        drawShape(lastShapeRef.current, ctx, 0.5);
+        if (userDrawingRef.current.length > 1) {
+          drawUserPath(userDrawingRef.current, ctx);
+        }
+      }
+
+      // Draw User Path (Laser Trail)
+      if (userDrawingRef.current.length > 0 && phaseRef.current !== "result") {
+        drawLaserTrail(userDrawingRef.current, ctx);
+      }
+
+      // Draw Cursor
+      if (cursorPosRef.current) {
+        drawRainbowCursor(ctx, cursorPosRef.current, isDrawingRef.current);
+      }
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    if (isPlaying) {
+      render();
+    }
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isPlaying]);
+
   // Keyboard controls: Spacebar to skip, Z/X for drawing (osu! style)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1006,6 +1066,7 @@ export default function App() {
     if (coords) {
       setCursorPos(coords); // Always track cursor position
     }
+    cursorPosRef.current = coords;
 
     if (!isDrawing || (gamePhase !== "drawing" && gamePhase !== "showing")) return;
     e.preventDefault();
@@ -1018,24 +1079,6 @@ export default function App() {
     setUserDrawing((prev) => {
       const updated = [...prev, coords];
       userDrawingRef.current = updated;
-
-      // Redraw
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        clearCanvas();
-
-        if (phaseRef.current === "showing" && lastShapeRef.current) {
-          drawShape(lastShapeRef.current, ctx);
-        } else {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          if (lastShapeRef.current) {
-            drawShapeHint(lastShapeRef.current, ctx);
-          }
-        }
-        drawLaserTrail(updated, ctx);
-      }
-
       return updated;
     });
   };
@@ -1061,6 +1104,7 @@ export default function App() {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
       });
+      cursorPosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
       // If currently drawing with keyboard, add points
       if (isDrawing && (gamePhase === "drawing" || gamePhase === "showing")) {
@@ -1072,24 +1116,6 @@ export default function App() {
         setUserDrawing((prev) => {
           const updated = [...prev, coords];
           userDrawingRef.current = updated;
-
-          // Redraw
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            clearCanvas();
-
-            if (phaseRef.current === "showing" && lastShapeRef.current) {
-              drawShape(lastShapeRef.current, ctx);
-            } else {
-              ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              if (lastShapeRef.current) {
-                drawShapeHint(lastShapeRef.current, ctx);
-              }
-            }
-            drawLaserTrail(updated, ctx);
-          }
-
           return updated;
         });
       }
@@ -1205,7 +1231,7 @@ export default function App() {
       />
 
       {/* Mask Overlay - obscures video until unmasked */}
-      <div className={`video-overlay ${isUnmasked ? 'unmasked' : ''}`} />
+      {videoUrl && <div className={`video-overlay ${isUnmasked ? 'unmasked' : ''}`} />}
 
       <canvas
         ref={canvasRef}
@@ -1217,7 +1243,7 @@ export default function App() {
           width: "100%",
           height: "100%",
           pointerEvents: (gamePhase === "drawing" || gamePhase === "showing") ? "auto" : "none",
-          cursor: isDrawing ? "none" : ((gamePhase === "drawing" || gamePhase === "showing") ? "crosshair" : "default"),
+          cursor: isPlaying ? "none" : "default",
           touchAction: "none",
         }}
         onMouseDown={handleDrawStart}
