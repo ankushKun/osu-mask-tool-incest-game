@@ -1,5 +1,16 @@
 import "./index.css";
 import { useEffect, useRef, useState, useCallback } from "react";
+import demoWebp from "./demo.webp"
+import MikuMusicVideo from "./miku.mp4"
+
+// Prefetch demo webp for How to Play popup
+if (typeof window !== 'undefined') {
+  const link = document.createElement('link');
+  link.rel = 'prefetch';
+  link.href = demoWebp;
+  link.as = 'image';
+  document.head.appendChild(link);
+}
 
 // IndexedDB utilities for video storage
 const DB_NAME = 'VideoHistoryDB';
@@ -75,12 +86,32 @@ type Explosion = { x: number; y: number; id: number };
 
 type GamePhase = "idle" | "showing" | "drawing" | "result";
 type ResultFeedback = { score: number; accuracy: number; distance: number; rating: string } | null;
+type RatingCounts = { PERFECT: number; GREAT: number; GOOD: number; OK: number; MISS: number };
+type GameStats = {
+  totalScore: number;
+  maxCombo: number;
+  shapesCompleted: number;
+  totalShapes: number;
+  ratingCounts: RatingCounts;
+  averageAccuracy: number;
+  playTime: number;
+};
 type VideoHistoryItem = {
   name: string;
   timestamp: number;
   size?: number;
   file?: File;
   loading?: boolean;
+};
+
+type ScoreEntry = {
+  id: string;
+  videoName: string;
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  grade: string;
+  timestamp: number;
 };
 
 function getPointSegmentDistance(p: Point, v: Point, w: Point) {
@@ -125,6 +156,40 @@ export default function App() {
   const [videoHistory, setVideoHistory] = useState<VideoHistoryItem[]>([]);
   const [currentVideoName, setCurrentVideoName] = useState<string>("");
   const [explosion, setExplosion] = useState<Explosion | null>(null);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [gameStats, setGameStats] = useState<GameStats | null>(null);
+  const [ratingCounts, setRatingCounts] = useState<RatingCounts>({ PERFECT: 0, GREAT: 0, GOOD: 0, OK: 0, MISS: 0 });
+  const [totalAccuracy, setTotalAccuracy] = useState<number[]>([]);
+  const [highScores, setHighScores] = useState<ScoreEntry[]>([]);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const gameStartTimeRef = useRef<number>(0);
+
+  // Load high scores from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('highScores');
+      if (stored) {
+        setHighScores(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error('Failed to load high scores', e);
+    }
+  }, []);
+
+  const saveHighScore = useCallback((entry: ScoreEntry) => {
+    setHighScores(prev => {
+      const updated = [entry, ...prev]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20); // Keep top 20
+      try {
+        localStorage.setItem('highScores', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save high scores', e);
+      }
+      return updated;
+    });
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -272,10 +337,11 @@ export default function App() {
     ctx.restore();
   };
 
-  const drawUserPath = (points: Point[], ctx: CanvasRenderingContext2D) => {
+  const drawUserPath = (points: Point[], ctx: CanvasRenderingContext2D, alpha = 1) => {
     if (points.length < 2) return;
 
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 24;
     ctx.lineCap = "round";
@@ -342,17 +408,17 @@ export default function App() {
     const baseSize = 6;
 
     ctx.save();
-    
+
     // Intense glow
     ctx.shadowBlur = (isClicking ? 40 : 20);
     ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
-    
+
     // Core
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, baseSize * intensity, 0, Math.PI * 2);
     ctx.fill();
-    
+
     // Outer ring / Laser effect
     ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
     ctx.lineWidth = 2 * intensity;
@@ -362,14 +428,14 @@ export default function App() {
 
     // Add some "sparks" or lines if clicking
     if (isClicking) {
-        ctx.beginPath();
-        ctx.moveTo(pos.x - 20, pos.y);
-        ctx.lineTo(pos.x + 20, pos.y);
-        ctx.moveTo(pos.x, pos.y - 20);
-        ctx.lineTo(pos.x, pos.y + 20);
-        ctx.strokeStyle = `hsl(${hue}, 100%, 80%)`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pos.x - 20, pos.y);
+      ctx.lineTo(pos.x + 20, pos.y);
+      ctx.moveTo(pos.x, pos.y - 20);
+      ctx.lineTo(pos.x, pos.y + 20);
+      ctx.strokeStyle = `hsl(${hue}, 100%, 80%)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
 
     ctx.restore();
@@ -473,6 +539,12 @@ export default function App() {
     if (shape) {
       const result = calculateScore(drawn, shape);
 
+      // Track rating counts
+      setRatingCounts(prev => ({
+        ...prev,
+        [result.rating]: prev[result.rating as keyof RatingCounts] + 1
+      }));
+
       if (result.rating === "MISS") {
         setScore(prev => Math.max(0, prev + result.score)); // Allow score to drop
         setCombo(0);
@@ -488,6 +560,11 @@ export default function App() {
         });
         setResultFeedback({ score: finalScore, accuracy: result.accuracy, distance: result.distance, rating: result.rating });
         setShapesCompleted(prev => prev + 1);
+
+        // Track accuracy for averaging
+        if (result.accuracy > 0) {
+          setTotalAccuracy(prev => [...prev, result.accuracy]);
+        }
 
         // Unmasking Logic: If score > 50, reveal the video
         if (result.score > 50) {
@@ -701,7 +778,7 @@ export default function App() {
     if (!file) {
       // Try to load from IndexedDB
       try {
-        file = await getVideoFromDB(item.name);
+        file = await getVideoFromDB(item.name) as File | undefined;
         if (!file) {
           console.error('File not found in IndexedDB');
           return;
@@ -735,7 +812,8 @@ export default function App() {
   };
 
   const clearHistory = async () => {
-    setVideoHistory([]);
+    // Keep the demo video when clearing
+    setVideoHistory(prev => prev.filter(item => item.name === "🎤 Demo: Miku Music Video"));
     fileMapRef.current.clear();
 
     try {
@@ -769,6 +847,12 @@ export default function App() {
   const handleStart = async () => {
     if (!videoRef.current) return;
     try {
+      // Scroll to top before locking scroll on mobile
+      window.scrollTo(0, 0);
+      if (gameRootRef.current) {
+        gameRootRef.current.scrollTop = 0;
+      }
+
       await videoRef.current.play();
       setIsPlaying(true);
       setScore(0);
@@ -776,6 +860,11 @@ export default function App() {
       setMaxCombo(0);
       setShapesCompleted(0);
       setGamePhase("idle");
+      setGameEnded(false);
+      setGameStats(null);
+      setRatingCounts({ PERFECT: 0, GREAT: 0, GOOD: 0, OK: 0, MISS: 0 });
+      setTotalAccuracy([]);
+      gameStartTimeRef.current = Date.now();
 
       setBeats([]);
 
@@ -787,16 +876,88 @@ export default function App() {
     }
   };
 
+  const handleVideoEnded = () => {
+    if (!isPlaying) return;
+
+    const playTime = (Date.now() - gameStartTimeRef.current) / 1000;
+    const avgAccuracy = totalAccuracy.length > 0
+      ? Math.round(totalAccuracy.reduce((a, b) => a + b, 0) / totalAccuracy.length)
+      : 0;
+    const totalShapes = Object.values(ratingCounts).reduce((a, b) => a + b, 0);
+
+    const stats = {
+      totalScore: score,
+      maxCombo,
+      shapesCompleted,
+      totalShapes,
+      ratingCounts,
+      averageAccuracy: avgAccuracy,
+      playTime,
+    };
+    setGameStats(stats);
+
+    // Calculate grade and save high score
+    const grade = avgAccuracy >= 95 ? 'S' :
+      avgAccuracy >= 80 ? 'A' :
+        avgAccuracy >= 60 ? 'B' :
+          avgAccuracy >= 40 ? 'C' : 'D';
+
+    saveHighScore({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      videoName: currentVideoName,
+      score,
+      accuracy: avgAccuracy,
+      maxCombo,
+      grade,
+      timestamp: Date.now(),
+    });
+
+    setIsPlaying(false);
+    setGameEnded(true);
+    setGamePhase("idle");
+
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+  };
+
+  const handleRetry = () => {
+    setGameEnded(false);
+    setGameStats(null);
+    setIsPaused(false);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+    handleStart();
+  };
+
+  const handleGoBack = () => {
+    setGameEnded(false);
+    setGameStats(null);
+    setIsPlaying(false);
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.src = "";
+      videoRef.current.load();
+    }
+    setVideoUrl(null);
+    setCurrentVideoName("");
+  };
+
   // Load video history from localStorage and IndexedDB
   useEffect(() => {
     const loadHistory = async () => {
       try {
         const stored = localStorage.getItem('videoHistory');
+        let historyItems: VideoHistoryItem[] = [];
+
         if (stored) {
           const metadata = JSON.parse(stored) as Array<{ name: string; timestamp: number; size?: number }>;
 
           // Load files from IndexedDB
-          const historyWithFiles = await Promise.all(
+          historyItems = await Promise.all(
             metadata.slice(0, 10).map(async (item) => {
               try {
                 const file = await getVideoFromDB(item.name);
@@ -810,9 +971,29 @@ export default function App() {
               }
             })
           );
-
-          setVideoHistory(historyWithFiles);
         }
+
+        // Always ensure demo video is available
+        const hasDemoVideo = historyItems.some(item => item.name === "🎤 Demo: Miku Music Video");
+        if (!hasDemoVideo) {
+          // Fetch the bundled demo video and convert to File
+          try {
+            const response = await fetch(MikuMusicVideo);
+            const blob = await response.blob();
+            const demoFile = new File([blob], "miku-demo.mp4", { type: "video/mp4" });
+
+            historyItems.push({
+              name: "🎤 Demo: Miku Music Video",
+              timestamp: 0, // Use 0 to always sort last among regular videos
+              size: demoFile.size,
+              file: demoFile,
+            });
+          } catch (e) {
+            console.error('Failed to load demo video', e);
+          }
+        }
+
+        setVideoHistory(historyItems);
       } catch (e) {
         console.error('Failed to load video history', e);
       }
@@ -944,6 +1125,10 @@ export default function App() {
       // Draw User Path (Laser Trail)
       if (userDrawingRef.current.length > 0 && phaseRef.current !== "result") {
         drawLaserTrail(userDrawingRef.current, ctx);
+        // Show brush stroke at 50% opacity while actively drawing
+        if (isDrawingRef.current && userDrawingRef.current.length > 1) {
+          drawUserPath(userDrawingRef.current, ctx, 0.5);
+        }
       }
 
       // Draw Cursor
@@ -963,9 +1148,36 @@ export default function App() {
     };
   }, [isPlaying]);
 
-  // Keyboard controls: Spacebar to skip, Z/X for drawing (osu! style)
+  // Toggle pause
+  const togglePause = useCallback(() => {
+    if (!isPlaying || gameEnded) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    setIsPaused(prev => {
+      if (prev) {
+        video.play();
+      } else {
+        video.pause();
+      }
+      return !prev;
+    });
+  }, [isPlaying, gameEnded]);
+
+  // Keyboard controls: Spacebar to skip, Z/X for drawing (osu! style), ESC to pause
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // ESC to toggle pause
+      if (e.code === "Escape" && isPlaying && !gameEnded) {
+        e.preventDefault();
+        togglePause();
+        return;
+      }
+
+      // Don't process other keys while paused
+      if (isPaused) return;
+
       // Spacebar to skip forward
       if (e.code === "Space" && isPlaying) {
         e.preventDefault();
@@ -986,6 +1198,7 @@ export default function App() {
 
       // Z or X key to start drawing (osu! style)
       if ((e.code === "KeyZ" || e.code === "KeyX") && !e.repeat) {
+        if (isPaused) return;
         if (gamePhase !== "drawing" && gamePhase !== "showing") return;
         e.preventDefault();
 
@@ -1002,6 +1215,7 @@ export default function App() {
     const handleKeyUp = (e: KeyboardEvent) => {
       // Z or X key release to end drawing
       if (e.code === "KeyZ" || e.code === "KeyX") {
+        if (isPaused) return;
         if (gamePhase !== "drawing" && gamePhase !== "showing") return;
         e.preventDefault();
 
@@ -1020,7 +1234,7 @@ export default function App() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [isPlaying, gamePhase, endDrawingPhase]);
+  }, [isPlaying, gamePhase, endDrawingPhase, isPaused, togglePause, gameEnded]);
 
   // Get canvas coordinates from mouse/touch event or current cursor
   const getCanvasCoords = (e?: React.MouseEvent | React.TouchEvent | MouseEvent) => {
@@ -1029,8 +1243,8 @@ export default function App() {
     const rect = canvas.getBoundingClientRect();
 
     if (!e) {
-      // Use stored cursor position for keyboard events
-      return cursorPos;
+      // Use ref for keyboard events to avoid stale closure
+      return cursorPosRef.current;
     }
 
     if ('touches' in e) {
@@ -1179,39 +1393,7 @@ export default function App() {
   };
 
   return (
-    <div className="game-root" ref={gameRootRef}>
-      <style>{`
-        @keyframes explodeRing {
-          0% { transform: scale(0.5); opacity: 1; border-width: 10px; }
-          100% { transform: scale(2.5); opacity: 0; border-width: 0px; }
-        }
-        @keyframes explodeFlash {
-          0% { transform: scale(0); opacity: 1; }
-          50% { transform: scale(1.5); opacity: 0.8; }
-          100% { transform: scale(2); opacity: 0; }
-        }
-        .explosion-container {
-          position: absolute;
-          pointer-events: none;
-          z-index: 100;
-          width: 0; height: 0;
-        }
-        .explosion-ring {
-          position: absolute;
-          top: -50px; left: -50px; width: 100px; height: 100px;
-          border-radius: 50%;
-          border: 5px solid #fff;
-          box-shadow: 0 0 20px #fff, 0 0 40px #ff00ff;
-          animation: explodeRing 0.6s ease-out forwards;
-        }
-        .explosion-flash {
-          position: absolute;
-          top: -50px; left: -50px; width: 100px; height: 100px;
-          border-radius: 50%;
-          background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0) 70%);
-          animation: explodeFlash 0.4s ease-out forwards;
-        }
-      `}</style>
+    <div className={`game-root ${isPlaying ? 'is-playing' : ''}`} ref={gameRootRef}>
       <div className="scanlines" />
       <input
         id="file"
@@ -1228,6 +1410,8 @@ export default function App() {
         playsInline
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleTimeUpdate}
+        onEnded={handleVideoEnded}
+        style={{ display: videoUrl ? 'block' : 'none' }}
       />
 
       {/* Mask Overlay - obscures video until unmasked */}
@@ -1263,7 +1447,174 @@ export default function App() {
         </div>
       )}
 
-      <div className="progress-bar" aria-hidden>
+      {/* Pause Popup */}
+      {isPaused && (
+        <div className="game-end-overlay">
+          <div className="pause-popup">
+            <div className="game-end-title">PAUSED</div>
+            <div className="game-end-subtitle">{currentVideoName}</div>
+
+            <div className="pause-stats">
+              <div className="pause-stat">
+                <span className="stat-label">Score</span>
+                <span className="stat-value">{score.toLocaleString()}</span>
+              </div>
+              <div className="pause-stat">
+                <span className="stat-label">Combo</span>
+                <span className="stat-value">{combo}x</span>
+              </div>
+              <div className="pause-stat">
+                <span className="stat-label">Shapes</span>
+                <span className="stat-value">{shapesCompleted}</span>
+              </div>
+            </div>
+
+            <div className="pause-buttons">
+              <button className="btn btn-resume" onClick={togglePause}>
+                ▶ Resume
+              </button>
+              <button className="btn btn-secondary" onClick={handleRetry}>
+                ↺ Retry
+              </button>
+              <button className="btn btn-secondary" onClick={() => { setIsPaused(false); handleGoBack(); }}>
+                ⌂ Go Home
+              </button>
+            </div>
+
+            <div className="pause-hint">Press ESC to resume</div>
+          </div>
+        </div>
+      )}
+
+      {/* Game End Popup */}
+      {gameEnded && gameStats && (
+        <div className="game-end-overlay">
+          <div className="game-end-popup">
+            <div className="game-end-title">GAME COMPLETE!</div>
+            <div className="game-end-subtitle">{currentVideoName}</div>
+
+            <div className="game-end-score">{gameStats.totalScore.toLocaleString()}</div>
+
+            <div className="game-end-grade" style={{
+              color:
+                gameStats.averageAccuracy >= 95 ? '#00ffff' :
+                  gameStats.averageAccuracy >= 80 ? '#00ff66' :
+                    gameStats.averageAccuracy >= 60 ? '#ffff00' :
+                      gameStats.averageAccuracy >= 40 ? '#ff9900' : '#ff3333'
+            }}>
+              {gameStats.averageAccuracy >= 95 ? 'S' :
+                gameStats.averageAccuracy >= 80 ? 'A' :
+                  gameStats.averageAccuracy >= 60 ? 'B' :
+                    gameStats.averageAccuracy >= 40 ? 'C' : 'D'}
+            </div>
+
+            <div className="game-end-stats">
+              <div className="stat-box">
+                <div className="stat-label">Accuracy</div>
+                <div className="stat-value">{gameStats.averageAccuracy}%</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Max Combo</div>
+                <div className="stat-value">{gameStats.maxCombo}x</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Shapes Hit</div>
+                <div className="stat-value">{gameStats.shapesCompleted}/{gameStats.totalShapes}</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-label">Play Time</div>
+                <div className="stat-value">{formatTime(gameStats.playTime)}</div>
+              </div>
+            </div>
+
+            <div className="rating-breakdown">
+              <div className="rating-item">
+                <div className="rating-count rating-perfect">{gameStats.ratingCounts.PERFECT}</div>
+                <div className="rating-label rating-perfect">Perfect</div>
+              </div>
+              <div className="rating-item">
+                <div className="rating-count rating-great">{gameStats.ratingCounts.GREAT}</div>
+                <div className="rating-label rating-great">Great</div>
+              </div>
+              <div className="rating-item">
+                <div className="rating-count rating-good">{gameStats.ratingCounts.GOOD}</div>
+                <div className="rating-label rating-good">Good</div>
+              </div>
+              <div className="rating-item">
+                <div className="rating-count rating-ok">{gameStats.ratingCounts.OK}</div>
+                <div className="rating-label rating-ok">OK</div>
+              </div>
+              <div className="rating-item">
+                <div className="rating-count rating-miss">{gameStats.ratingCounts.MISS}</div>
+                <div className="rating-label rating-miss">Miss</div>
+              </div>
+            </div>
+
+            <div className="game-end-buttons">
+              <button className="btn-secondary" onClick={handleGoBack}>
+                ← Back
+              </button>
+              <button className="btn" onClick={handleRetry}>
+                Retry ↻
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* How to Play Popup */}
+      {showHowToPlay && (
+        <div className="game-end-overlay" onClick={() => setShowHowToPlay(false)}>
+          <div className="how-to-play-popup" onClick={(e) => e.stopPropagation()}>
+            <button className="popup-close" onClick={() => setShowHowToPlay(false)}>✕</button>
+            <div className="game-end-title">HOW TO PLAY</div>
+
+            <div className="htp-content">
+              <p className="htp-description">
+                <strong>Discosu!</strong> is a rhythm game where you scribble on masks that appear and disappear to music beats.
+                Upload your own music video and trace the shapes as they flash on screen to score points.
+                Bad scribbles lead to negative points!
+              </p>
+
+              <div className="htp-demo">
+                <img src={demoWebp} alt="Gameplay demonstration" className="demo-image" />
+              </div>
+
+              <div className="htp-inspired">
+                Inspired by <span className="highlight-osu">"osu!"</span> and <span className="highlight-ps">Photoshop's Masking Tool</span> :p
+              </div>
+
+              <div className="htp-controls">
+                <div className="htp-control-title">Controls</div>
+                <div className="htp-control-grid">
+                  <div className="htp-control-item">
+                    <span className="control-key">🖱️</span>
+                    <span className="control-desc">Click & drag to draw</span>
+                  </div>
+                  <div className="htp-control-item">
+                    <span className="control-key">Z / X</span>
+                    <span className="control-desc">Hold to draw (keyboard)</span>
+                  </div>
+                  <div className="htp-control-item">
+                    <span className="control-key">👆</span>
+                    <span className="control-desc">Touch & drag (mobile)</span>
+                  </div>
+                  <div className="htp-control-item">
+                    <span className="control-key">SPACE</span>
+                    <span className="control-desc">Skip to next beat</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button className="btn" onClick={() => setShowHowToPlay(false)}>
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isPlaying && <div className="progress-bar" aria-hidden>
         <div
           className="progress-fill"
           style={{ width: `${Math.round(progress * 10000) / 100}%` }}
@@ -1289,23 +1640,13 @@ export default function App() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       <div className="hud">
         {/* render a transient fullscreen flash on each beat */}
         {flashCount > 0 ? <div key={flashCount} className="beat-flash" /> : null}
 
-        {/* Phase indicator */}
-        {gamePhase === "showing" && (
-          <div className="phase-indicator showing">
-            <div className="phase-icon">👁</div>
-          </div>
-        )}
-        {gamePhase === "drawing" && (
-          <div className="phase-indicator drawing">
-            <div className="phase-icon">✏️</div>
-          </div>
-        )}
+
 
         {/* Result feedback */}
         {resultFeedback && (
@@ -1323,31 +1664,39 @@ export default function App() {
 
         <div className="hud-top">
           <div className="score-container">
-            <div className="score"><span>Score: {score.toLocaleString()}</span></div>
+            {isPlaying && <div className="score"><span>Score: {score.toLocaleString()}</span></div>}
             <div key={combo} className={`combo ${combo > 0 ? 'visible' : ''}`}>
               {combo > 0 ? `${combo}x` : ''}
             </div>
           </div>
-          <div className="stats-container">
+          {isPlaying && <div className="stats-container">
             <div>Shapes: {shapesCompleted}</div>
             <div>Max: {maxCombo}x</div>
-          </div>
-          <div className="timer">
-            <span>{timeLeft !== null ? formatTime(timeLeft) : "--:--"}</span>
-          </div>
+          </div>}
+          {isPlaying && <div className="timer">
+            {<span>{timeLeft !== null ? formatTime(timeLeft) : "--:--"}</span>}
+          </div>}
         </div>
 
         <div className="center-controls">
           <div className="controls">
             {!videoUrl ? (
-              <div className="menu-screen">
-                <div className="menu-title">DISCO</div>
-                <label className="btn" htmlFor="file">
-                  Load Video
-                </label>
+              <>
+                <div className="mobile-hero">
+                  <div className="menu-screen">
+                    <div className="menu-title">DISCOSU!</div>
+                    <label className="btn" htmlFor="file">
+                      Select Video
+                    </label>
+                    <button className="how-to-play-btn" onClick={() => setShowHowToPlay(true)}>
+                      How to Play ?
+                    </button>
+                  </div>
+                </div>
 
+                {/* Mobile inline sidebars - shown via CSS on small screens */}
                 {videoHistory.length > 0 && (
-                  <div className="video-history">
+                  <div className="video-history mobile-inline">
                     <div className="history-header">
                       <span className="history-title">Recent Videos</span>
                       <button
@@ -1385,8 +1734,39 @@ export default function App() {
                     </div>
                   </div>
                 )}
-              </div>
-            ) : !isPlaying ? (
+
+                <div className="scoreboard-sidebar mobile-inline">
+                  <div className="scoreboard-header">
+                    <span className="scoreboard-title">HIGH SCORES</span>
+                    <div className="scoreboard-line" />
+                  </div>
+                  <div className="scoreboard-list">
+                    {highScores.length === 0 ? (
+                      <div className="scoreboard-empty">
+                        <div className="empty-icon">🎮</div>
+                        <div className="empty-text">No scores yet</div>
+                        <div className="empty-subtext">Play a game to get started!</div>
+                      </div>
+                    ) : (
+                      highScores.map((entry, idx) => (
+                        <div key={entry.id} className={`scoreboard-item ${idx < 3 ? `top-${idx + 1}` : ''}`}>
+                          <div className="scoreboard-rank">{idx + 1}</div>
+                          <div className="scoreboard-info">
+                            <div className="scoreboard-video-name">{entry.videoName}</div>
+                            <div className="scoreboard-meta">
+                              <span className={`scoreboard-grade grade-${entry.grade}`}>{entry.grade}</span>
+                              <span className="scoreboard-accuracy">{entry.accuracy}%</span>
+                              <span className="scoreboard-combo">{entry.maxCombo}x</span>
+                            </div>
+                          </div>
+                          <div className="scoreboard-score">{entry.score.toLocaleString()}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : !isPlaying && !gameEnded ? (
               <div className="start-menu">
                 <div className="sensitivity-control">
                   <label className="sensitivity-label">Intensity: {sensitivity}</label>
@@ -1413,6 +1793,81 @@ export default function App() {
         </div>
         <div className="hud-bottom" />
       </div>
+
+      {/* Left Sidebar - Recent Videos */}
+      {!isPlaying && !gameEnded && videoHistory.length > 0 && (
+        <div className="video-history">
+          <div className="history-header">
+            <span className="history-title">Recent Videos</span>
+            <button
+              className="history-clear"
+              onClick={clearHistory}
+              title="Clear history"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="history-list">
+            {videoHistory.map((item, idx) => {
+              const isAvailable = !!item.file;
+              return (
+                <button
+                  key={`${item.name}-${item.timestamp}`}
+                  className={`history-item ${!isAvailable ? 'unavailable' : ''}`}
+                  onClick={() => isAvailable && loadFromHistory(item)}
+                  disabled={!isAvailable}
+                  title={!isAvailable ? 'File not available - please reload' : undefined}
+                >
+                  <div className="history-item-number">{idx + 1}</div>
+                  <div className="history-item-content">
+                    <div className="history-item-name">
+                      {item.name}
+                      {!isAvailable && <span className="unavailable-badge">⚠</span>}
+                    </div>
+                    <div className="history-item-date">
+                      {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Right Sidebar - Scoreboard */}
+      {!isPlaying && !gameEnded && (
+        <div className="scoreboard-sidebar">
+          <div className="scoreboard-header">
+            <span className="scoreboard-title">HIGH SCORES</span>
+            <div className="scoreboard-line" />
+          </div>
+          <div className="scoreboard-list">
+            {highScores.length === 0 ? (
+              <div className="scoreboard-empty">
+                <div className="empty-icon">🎮</div>
+                <div className="empty-text">No scores yet</div>
+                <div className="empty-subtext">Play a game to get started!</div>
+              </div>
+            ) : (
+              highScores.map((entry, idx) => (
+                <div key={entry.id} className={`scoreboard-item ${idx < 3 ? `top-${idx + 1}` : ''}`}>
+                  <div className="scoreboard-rank">{idx + 1}</div>
+                  <div className="scoreboard-info">
+                    <div className="scoreboard-video-name">{entry.videoName}</div>
+                    <div className="scoreboard-meta">
+                      <span className={`scoreboard-grade grade-${entry.grade}`}>{entry.grade}</span>
+                      <span className="scoreboard-accuracy">{entry.accuracy}%</span>
+                      <span className="scoreboard-combo">{entry.maxCombo}x</span>
+                    </div>
+                  </div>
+                  <div className="scoreboard-score">{entry.score.toLocaleString()}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

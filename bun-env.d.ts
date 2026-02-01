@@ -7,6 +7,21 @@ declare module "*.svg" {
   const path: `${string}.svg`;
   export = path;
 }
+declare module "*.mp4" {
+  /**
+   * A path to the SVG file
+   */
+  const path: `${string}.mp4`;
+  export = path;
+}
+
+declare module "*.webp" {
+  /**
+   * A path to the SVG file
+   */
+  const path: `${string}.webp`;
+  export = path;
+}
 
 declare module "*.module.css" {
   /**
