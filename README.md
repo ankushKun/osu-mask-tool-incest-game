@@ -1,9 +1,22 @@
-# OSU + MASKING TOOL RYTHM GAME
+# Discosu
 
-I am making a game which mixes the concept of photoshop masking tool with osu! rhythm game.
+A rhythm game where you trace masks that appear on screen to the beat of the music. Think osu! meets Photoshop's masking tool.
 
-A video plays in the background, and random shapes appear on the screen on top of the video according to the beats, for a short time and then disappears.
+Upload any music video, and masks will flash on screen synced to the audio. After each mask disappears, trace its shape from memory. The more accurate your drawing, the higher your score.
 
-The player then has to to draw the same mask shape on the video after it disappears, from memory. the more accurate the mask drawn the more points gained.
+## Controls
 
-There will be a reverse timer progress bar at bottom within which the player has to draw the mask to pass
+- Click and drag (or hold Z/X) to draw
+- Space to skip forward
+- ESC to pause
+
+## Running locally
+
+```bash
+bun install
+bun run dev
+```
+
+Built with Bun, React, TypeScript, and Tailwind. Uses Web Audio API for beat detection.
+
+ps. why masks? It was a theme for a gamejam
