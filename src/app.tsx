@@ -1573,7 +1573,8 @@ export default function App() {
               <p className="htp-description">
                 <strong>Discosu!</strong> is a rhythm game where you scribble on masks that appear and disappear to music beats.
                 Upload your own music video and trace the shapes as they flash on screen to score points.
-                Bad scribbles lead to negative points!
+                <br /><strong>Only scribble when the screen is darker!</strong>
+                <br />Bad scribbles lead to negative points!
               </p>
 
               <div className="htp-demo">
